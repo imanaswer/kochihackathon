@@ -38,4 +38,3 @@ Expected initially:
 `{"entries":[]}`
 
 Then finish one game. The score should appear in the Google Sheet under the `Leaderboard` tab. Open the game on another phone and refresh the leaderboard; it should show the same entry.
-# kochihackathon
