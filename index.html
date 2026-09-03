@@ -1,0 +1,3828 @@
+<!DOCTYPE html>
+<!--
+ ═════════════════════════════════════════════════════════════════
+  KOCHI HACKATHON 2026 — game + leaderboard (single HTML file)
+ ═════════════════════════════════════════════════════════════════
+
+  To share the leaderboard across all devices (so every scan of the
+  QR code writes to the SAME leaderboard), connect a Google Sheet
+  as the backend. Without this, every phone shows only its own
+  local scores.
+
+  Setup takes ~10 minutes:
+
+    1. Create a new Google Sheet at  https://sheets.new
+       (rename it "Kochi Hackathon 2026" or similar).
+
+    2. Extensions -> Apps Script. Delete the placeholder code.
+
+    3. Open  google_sheets_backend.gs  (shipped alongside this HTML)
+       and paste ALL of its contents into the editor. Save.
+
+    4. Deploy -> New deployment -> gear icon -> Web app
+         Execute as:     Me
+         Who has access: Anyone
+       Click Deploy, authorize when prompted.
+
+    5. Copy the "Web app URL". It looks like:
+         https://script.google.com/macros/s/AKfy........./exec
+
+    6. In this HTML file, search for:  SHEETS_URL = ''
+       Paste your URL between the quotes.
+
+    7. Re-upload the HTML. QR code stays the same (points to the
+       hosted URL, not the file itself).
+
+  A green "Sheets · live" badge on the leaderboard confirms it's
+  working. Grey "Local only" = SHEETS_URL is empty.
+
+  All entries land as rows in the sheet — export to CSV from
+  Google Sheets when you need them. Admin password: kochi2026
+ ═════════════════════════════════════════════════════════════════
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#12100e" />
+<title>Kochi Hackathon 2026 — Build. Debug. Ship.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   KOCHI HACKATHON — crafted terminal editorial theme
+   ============================================================ */
+:root{
+  --bg:            #12100e;
+  --surface:       #1c1915;
+  --elevated:      #26221c;
+  --code-bg:       #16130f;
+  --border:        #2e2921;
+  --border-strong: #423b30;
+  --divider:       rgba(240,234,215,0.06);
+
+  --text:          #f0ead7;
+  --text-muted:    #a39987;
+  --text-dim:      #736a5c;
+
+  --accent:        #e8a838;   /* CRT amber */
+  --accent-strong: #f5b842;
+  --accent-soft:   rgba(232,168,56,0.12);
+  --accent-line:   rgba(232,168,56,0.3);
+
+  --success:       #9dbf4e;
+  --success-soft:  rgba(157,191,78,0.1);
+  --danger:        #d67a6e;
+  --danger-soft:   rgba(214,122,110,0.1);
+  --info:          #8ab5d1;
+  --info-soft:     rgba(138,181,209,0.1);
+  --gold:          #d4a44b;
+  --silver:        #9a9689;
+
+  /* Syntax (used sparingly in code viewer) */
+  --syn-keyword:   #d67a6e;
+  --syn-string:    #9dbf4e;
+  --syn-number:    #e8a838;
+  --syn-comment:   #6d6558;
+  --syn-func:      #8ab5d1;
+
+  /* Type scale */
+  --t-xs: 11px;
+  --t-sm: 13px;
+  --t-base: 15px;
+  --t-lg: 17px;
+  --t-xl: 22px;
+  --t-2xl: 30px;
+  --t-3xl: 44px;
+  --t-4xl: 56px;
+
+  /* Radii — mostly small; personality in the palette not the corners */
+  --r-sm: 2px;
+  --r: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  font-size:var(--t-base);
+  line-height:1.6;
+  font-feature-settings:'ss01','cv01','cv02';
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* Subtle paper-grain vignette on the body — warm and quiet */
+body::before{
+  content:'';
+  position:fixed;
+  inset:0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(232,168,56,0.06), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(138,181,209,0.03), transparent 60%);
+  pointer-events:none;
+  z-index:0;
+}
+
+.app{
+  position:relative;
+  z-index:1;
+  max-width:720px;
+  margin:0 auto;
+  padding:32px 24px 80px;
+}
+@media (max-width:640px){ .app{padding:20px 16px 60px} }
+
+/* ============================================================
+   SVG icon system (inline, controlled by currentColor)
+   ============================================================ */
+.icon{
+  display:inline-block;
+  width:1em;
+  height:1em;
+  vertical-align:-0.15em;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.75;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  flex-shrink:0;
+}
+.icon-lg{width:20px;height:20px}
+.icon-xl{width:28px;height:28px}
+.icon-2xl{width:40px;height:40px}
+.icon-3xl{width:56px;height:56px}
+.icon-fill{fill:currentColor;stroke:none}
+
+/* ============================================================
+   TYPOGRAPHY
+   ============================================================ */
+h1,h2,h3,h4{
+  font-family:'Fraunces', Georgia, serif;
+  font-weight:500;
+  font-variation-settings:'opsz' 60, 'SOFT' 30;
+  letter-spacing:-0.01em;
+  color:var(--text);
+  line-height:1.15;
+}
+h1{font-size:var(--t-4xl);font-weight:500;letter-spacing:-0.025em;line-height:1.05}
+h2{font-size:var(--t-3xl);font-weight:500;letter-spacing:-0.02em}
+h3{font-size:var(--t-2xl);font-weight:500;letter-spacing:-0.015em}
+h4{font-size:var(--t-xl);font-weight:500}
+
+@media (max-width:640px){
+  h1{font-size:38px}
+  h2{font-size:30px}
+  h3{font-size:24px}
+}
+
+.serif-italic{font-family:'Fraunces', Georgia, serif;font-style:italic;font-weight:400}
+.mono{font-family:'JetBrains Mono', 'SF Mono', Consolas, monospace}
+.eyebrow{
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  letter-spacing:0.12em;
+  color:var(--text-dim);
+  text-transform:uppercase;
+  font-weight:500;
+}
+
+p{color:var(--text-muted);font-size:var(--t-base);line-height:1.65}
+p.lead{color:var(--text);font-size:var(--t-lg);line-height:1.55;max-width:56ch}
+
+/* Editorial divider — thin rule with a centered mark */
+.rule{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin:24px 0;
+  color:var(--text-dim);
+}
+.rule::before, .rule::after{
+  content:'';
+  flex:1;
+  height:1px;
+  background:var(--divider);
+}
+.rule-dot{
+  width:4px;
+  height:4px;
+  border-radius:50%;
+  background:var(--accent);
+  opacity:0.6;
+}
+
+/* ============================================================
+   SCREENS
+   ============================================================ */
+.screen{display:none; animation:fade-in 320ms var(--ease)}
+.screen.active{display:block}
+
+@keyframes fade-in{
+  from{opacity:0; transform:translateY(6px)}
+  to{opacity:1; transform:translateY(0)}
+}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+button{
+  font-family:inherit;
+  cursor:pointer;
+  border:none;
+  outline:none;
+  transition:all 160ms var(--ease);
+}
+
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:12px 20px;
+  background:var(--accent);
+  color:#1a1610;
+  font-size:var(--t-sm);
+  font-weight:600;
+  letter-spacing:0.01em;
+  border-radius:var(--r-md);
+  border:1px solid var(--accent-strong);
+  box-shadow:0 1px 0 rgba(255,255,255,0.15) inset, 0 2px 8px rgba(232,168,56,0.15);
+}
+.btn:hover:not(:disabled){
+  background:var(--accent-strong);
+  transform:translateY(-1px);
+  box-shadow:0 1px 0 rgba(255,255,255,0.2) inset, 0 4px 14px rgba(232,168,56,0.25);
+}
+.btn:active:not(:disabled){transform:translateY(0)}
+.btn:disabled{
+  opacity:0.35;
+  cursor:not-allowed;
+  box-shadow:none;
+}
+.btn-secondary{
+  background:transparent;
+  color:var(--text);
+  border:1px solid var(--border-strong);
+  box-shadow:none;
+}
+.btn-secondary:hover:not(:disabled){
+  background:var(--surface);
+  border-color:var(--text-dim);
+  transform:none;
+  box-shadow:none;
+}
+.btn-ghost{
+  background:transparent;
+  color:var(--text-muted);
+  border:none;
+  padding:8px 12px;
+  font-size:var(--t-sm);
+  box-shadow:none;
+}
+.btn-ghost:hover{color:var(--text)}
+.btn-small{padding:6px 12px;font-size:var(--t-xs)}
+.btn-block{width:100%}
+
+/* Hint button — subtle, sepia-toned */
+.btn-hint{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 12px;
+  background:transparent;
+  color:var(--accent);
+  border:1px dashed var(--accent-line);
+  border-radius:var(--r);
+  font-size:var(--t-xs);
+  font-family:'JetBrains Mono', monospace;
+  font-weight:500;
+  letter-spacing:0.03em;
+}
+.btn-hint:hover:not(:disabled){
+  background:var(--accent-soft);
+  border-style:solid;
+}
+.btn-hint:disabled{opacity:0.5;cursor:not-allowed}
+
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+
+/* Focus */
+:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+
+/* ============================================================
+   FORMS
+   ============================================================ */
+.form-row{margin-bottom:18px}
+label{
+  display:block;
+  font-size:var(--t-xs);
+  font-family:'JetBrains Mono', monospace;
+  color:var(--text-muted);
+  margin-bottom:6px;
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+}
+input[type="text"], input[type="email"], input[type="tel"], input[type="password"], select{
+  width:100%;
+  padding:11px 14px;
+  background:var(--code-bg);
+  color:var(--text);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  font-size:var(--t-base);
+  font-family:inherit;
+  transition:border 160ms var(--ease), background 160ms var(--ease);
+}
+input:focus, select:focus{
+  border-color:var(--accent);
+  background:var(--surface);
+  outline:none;
+}
+input::placeholder{color:var(--text-dim)}
+.checkbox-row{display:flex;align-items:flex-start;gap:10px;margin-top:16px}
+.checkbox-row input[type="checkbox"]{
+  margin-top:3px;
+  width:16px;
+  height:16px;
+  accent-color:var(--accent);
+  cursor:pointer;
+}
+.checkbox-row label{
+  font-family:inherit;
+  font-size:var(--t-sm);
+  color:var(--text-muted);
+  text-transform:none;
+  letter-spacing:0;
+  cursor:pointer;
+  margin:0;
+  line-height:1.5;
+}
+.error-msg{color:var(--danger);font-size:var(--t-xs);margin-top:6px;display:none}
+.error-msg.show{display:block}
+
+/* ============================================================
+   HERO / WELCOME
+   ============================================================ */
+.hero{padding:40px 0 24px}
+.hero-meta{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:32px;
+  flex-wrap:wrap;
+}
+.hero-brand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-sm);
+  color:var(--text);
+  font-weight:500;
+}
+.hero-brand-mark{
+  width:24px;
+  height:24px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--accent);
+}
+.hero-date{
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--text-dim);
+  letter-spacing:0.08em;
+}
+.hero h1{margin-bottom:20px}
+.hero h1 em{
+  font-style:italic;
+  color:var(--accent);
+  font-weight:400;
+  font-variation-settings:'opsz' 144, 'SOFT' 50;
+}
+.hero-tag{margin-bottom:28px;max-width:52ch}
+.hero-numbers{
+  display:grid;
+  grid-template-columns:repeat(3, 1fr);
+  gap:0;
+  margin:32px 0;
+  padding:20px 0;
+  border-top:1px solid var(--divider);
+  border-bottom:1px solid var(--divider);
+}
+.hero-numbers > div{
+  padding:0 16px;
+  border-right:1px solid var(--divider);
+}
+.hero-numbers > div:last-child{border-right:none}
+.hero-numbers .num{
+  font-family:'Fraunces', serif;
+  font-size:34px;
+  font-weight:500;
+  color:var(--text);
+  line-height:1;
+  margin-bottom:6px;
+}
+.hero-numbers .num-label{
+  font-size:var(--t-xs);
+  font-family:'JetBrains Mono', monospace;
+  color:var(--text-dim);
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+}
+
+/* Terminal preview — kept but restyled with softer amber glow */
+.terminal-preview{
+  background:var(--code-bg);
+  border:1px solid var(--border);
+  border-radius:var(--r-lg);
+  overflow:hidden;
+  margin:28px 0;
+  box-shadow:0 20px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(232,168,56,0.05);
+}
+.terminal-bar{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:10px 14px;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+}
+.terminal-dot{width:11px;height:11px;border-radius:50%;background:var(--border-strong)}
+.terminal-dot:nth-child(1){background:#8b5f3f}
+.terminal-dot:nth-child(2){background:#8b7a3f}
+.terminal-dot:nth-child(3){background:#5f7a4f}
+.terminal-title{
+  margin-left:auto;
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--text-dim);
+}
+.terminal-body{
+  padding:18px 18px 22px;
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-sm);
+  line-height:1.7;
+  color:var(--text-muted);
+}
+.terminal-body .prompt{color:var(--accent);margin-right:8px}
+.terminal-body .cmd{color:var(--text)}
+.terminal-body .out{color:var(--text-muted);padding-left:16px}
+.terminal-body .comment{color:var(--syn-comment)}
+.cursor{
+  display:inline-block;
+  width:7px;
+  height:14px;
+  background:var(--accent);
+  vertical-align:-2px;
+  animation:blink 1.1s steps(2) infinite;
+}
+@keyframes blink{50%{opacity:0}}
+
+/* Prize / notice callouts */
+.prize-card{
+  border:1px solid var(--border);
+  border-left:3px solid var(--accent);
+  border-radius:var(--r);
+  padding:18px 20px;
+  margin:28px 0;
+  background:var(--surface);
+}
+.prize-card h4{
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--accent);
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  margin-bottom:12px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.prize-list{list-style:none;padding:0}
+.prize-list li{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  padding:6px 0;
+  color:var(--text-muted);
+  font-size:var(--t-sm);
+}
+.prize-list li strong{color:var(--text);font-weight:600;min-width:70px;font-family:'JetBrains Mono',monospace;font-size:var(--t-xs)}
+
+/* ============================================================
+   GAME HEADER (persistent during play)
+   ============================================================ */
+.game-header{
+  position:sticky;
+  top:0;
+  z-index:20;
+  margin:-32px -24px 24px;
+  padding:14px 24px;
+  background:rgba(18,16,14,0.85);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--border);
+  display:flex;
+  align-items:center;
+  gap:16px;
+  flex-wrap:wrap;
+}
+@media (max-width:640px){ .game-header{margin:-20px -16px 20px;padding:12px 16px} }
+.gh-timer{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-sm);
+  font-weight:600;
+  color:var(--text);
+  padding:6px 12px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+}
+.gh-timer.warn{color:var(--danger);border-color:var(--danger)}
+.gh-progress{
+  flex:1;
+  display:flex;
+  gap:4px;
+  min-width:120px;
+}
+.gh-step{
+  flex:1;
+  height:4px;
+  background:var(--border);
+  border-radius:2px;
+  transition:background 200ms var(--ease);
+}
+.gh-step.done{background:var(--accent)}
+.gh-step.current{
+  background:var(--accent);
+  box-shadow:0 0 8px rgba(232,168,56,0.4);
+}
+.gh-label{
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--text-dim);
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+}
+.gh-score{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 12px;
+  background:var(--accent-soft);
+  border:1px solid var(--accent-line);
+  border-radius:var(--r);
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-sm);
+  font-weight:600;
+  color:var(--accent);
+  transition:transform 200ms var(--ease);
+}
+.gh-score.pop{transform:scale(1.15)}
+.gh-score-label{font-size:10px;color:var(--text-dim);letter-spacing:0.08em;text-transform:uppercase;font-weight:500}
+
+/* Delta chip in feedback boxes */
+.delta{
+  display:inline-block;
+  padding:1px 8px;
+  border-radius:2px;
+  font-family:'JetBrains Mono', monospace;
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:0.02em;
+  margin-left:4px;
+}
+.delta.plus{background:var(--success-soft);color:var(--success);border:1px solid rgba(157,191,78,0.4)}
+.delta.minus{background:var(--danger-soft);color:var(--danger);border:1px solid rgba(214,122,110,0.4)}
+
+/* ============================================================
+   PUZZLE HEADER (editorial: "PUZZLE 03." above title)
+   ============================================================ */
+.puzzle-head{margin-bottom:24px}
+.puzzle-num{
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--accent);
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  margin-bottom:10px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.puzzle-num::before{
+  content:'';
+  width:20px;
+  height:1px;
+  background:var(--accent);
+  display:inline-block;
+}
+.puzzle-head h2{margin-bottom:10px}
+.puzzle-head p{color:var(--text-muted);max-width:60ch}
+
+/* ============================================================
+   SELECT CARDS (domain, feature)
+   ============================================================ */
+.select-grid{
+  display:grid;
+  grid-template-columns:repeat(2, 1fr);
+  gap:10px;
+  margin:24px 0;
+}
+.select-card{
+  padding:18px 16px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  cursor:pointer;
+  transition:all 160ms var(--ease);
+  text-align:left;
+  position:relative;
+}
+.select-card:hover{
+  border-color:var(--border-strong);
+  background:var(--elevated);
+  transform:translateY(-1px);
+}
+.select-card.selected{
+  border-color:var(--accent);
+  background:var(--accent-soft);
+  box-shadow:0 0 0 1px var(--accent-line);
+}
+.select-card .card-icon{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:36px;
+  height:36px;
+  border-radius:var(--r);
+  background:var(--code-bg);
+  color:var(--accent);
+  margin-bottom:12px;
+}
+.select-card.selected .card-icon{
+  background:var(--accent);
+  color:var(--code-bg);
+}
+.select-card .label{
+  color:var(--text);
+  font-weight:600;
+  font-size:var(--t-base);
+  margin-bottom:4px;
+}
+.select-card .desc{
+  color:var(--text-muted);
+  font-size:var(--t-xs);
+  line-height:1.45;
+}
+.select-card .check{
+  position:absolute;
+  top:12px;
+  right:12px;
+  width:18px;
+  height:18px;
+  color:var(--accent);
+  opacity:0;
+  transition:opacity 160ms var(--ease);
+}
+.select-card.selected .check{opacity:1}
+
+/* Tech-stack section headers */
+.stack-section{margin-bottom:24px}
+.stack-label{
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--accent);
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  margin-bottom:12px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.stack-label::after{
+  content:'';
+  flex:1;
+  height:1px;
+  background:var(--divider);
+}
+.stack-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
+  gap:8px;
+}
+.stack-card{
+  padding:12px 14px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  cursor:pointer;
+  transition:all 140ms var(--ease);
+  font-size:var(--t-sm);
+  color:var(--text);
+}
+.stack-card:hover{border-color:var(--border-strong);background:var(--elevated)}
+.stack-card.selected{
+  border-color:var(--accent);
+  background:var(--accent-soft);
+}
+.stack-card .stack-icon{
+  width:18px;
+  height:18px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--text-muted);
+  flex-shrink:0;
+}
+.stack-card.selected .stack-icon{color:var(--accent)}
+
+/* Feature roadmap */
+.build-area{
+  background:var(--code-bg);
+  border:1px dashed var(--border-strong);
+  border-radius:var(--r-md);
+  padding:14px;
+  min-height:60px;
+  margin:20px 0;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.build-area .empty{
+  color:var(--text-dim);
+  font-family:'JetBrains Mono',monospace;
+  font-size:var(--t-sm);
+  padding:8px 4px;
+}
+.build-tag{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 12px;
+  background:var(--surface);
+  border:1px solid var(--accent-line);
+  color:var(--text);
+  border-radius:var(--r);
+  font-size:var(--t-sm);
+}
+.build-tag::before{
+  content:'';
+  width:5px;
+  height:5px;
+  border-radius:50%;
+  background:var(--accent);
+}
+.feature-cards{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.feature-card{
+  padding:14px 16px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  cursor:pointer;
+  transition:all 140ms var(--ease);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  color:var(--text);
+  font-size:var(--t-sm);
+}
+.feature-card:hover:not(.disabled){
+  border-color:var(--border-strong);
+  background:var(--elevated);
+  transform:translateX(2px);
+}
+.feature-card.selected{
+  border-color:var(--accent);
+  background:var(--accent-soft);
+}
+.feature-card.selected::before{
+  content:'';
+  width:5px;
+  height:5px;
+  border-radius:50%;
+  background:var(--accent);
+  margin-right:4px;
+}
+.feature-card.disabled{opacity:0.35;cursor:not-allowed}
+
+/* ============================================================
+   RAPID ROUND (algo questions)
+   ============================================================ */
+.rapid-progress{
+  display:flex;
+  gap:6px;
+  margin-bottom:20px;
+}
+.rapid-dot{
+  flex:1;
+  height:6px;
+  background:var(--border);
+  border-radius:3px;
+  transition:background 200ms var(--ease);
+}
+.rapid-dot.done{background:var(--accent)}
+.rapid-dot.done.wrong{background:var(--danger)}
+.rapid-dot.current{
+  background:var(--accent);
+  animation:pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse{50%{opacity:0.4}}
+
+.q-box{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  padding:22px;
+  margin-bottom:16px;
+}
+.q-tag{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:2px;
+  font-family:'JetBrains Mono', monospace;
+  font-size:10px;
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  font-weight:600;
+  margin-bottom:14px;
+  background:var(--accent-soft);
+  color:var(--accent);
+  border:1px solid var(--accent-line);
+}
+.q-tag.riddle{background:var(--info-soft);color:var(--info);border-color:rgba(138,181,209,0.3)}
+.q-tag.output{background:var(--success-soft);color:var(--success);border-color:rgba(157,191,78,0.3)}
+.q-tag.logic{background:rgba(214,122,110,0.1);color:var(--danger);border-color:rgba(214,122,110,0.3)}
+.q-tag.sys{background:rgba(154,150,137,0.15);color:var(--silver);border-color:rgba(154,150,137,0.3)}
+.q-prompt{
+  font-size:var(--t-lg);
+  color:var(--text);
+  margin-bottom:8px;
+  line-height:1.5;
+}
+.q-prompt code{
+  font-family:'JetBrains Mono', monospace;
+  font-size:0.9em;
+  background:var(--code-bg);
+  padding:2px 6px;
+  border-radius:2px;
+  color:var(--accent);
+  border:1px solid var(--border);
+}
+.q-code{
+  background:var(--code-bg);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  padding:12px 14px;
+  margin:12px 0 4px;
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-sm);
+  line-height:1.55;
+  color:var(--text);
+  white-space:pre-wrap;
+  overflow-x:auto;
+}
+.answers{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.answer-opt{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:11px 14px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  cursor:pointer;
+  transition:all 120ms var(--ease);
+  text-align:left;
+  color:var(--text);
+  font-size:var(--t-sm);
+  width:100%;
+  font-family:inherit;
+}
+.answer-opt:hover:not(:disabled){
+  border-color:var(--border-strong);
+  background:var(--elevated);
+}
+.answer-opt:disabled{cursor:default}
+.answer-opt .letter{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:22px;
+  height:22px;
+  background:var(--code-bg);
+  border:1px solid var(--border);
+  border-radius:2px;
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--text-muted);
+  flex-shrink:0;
+}
+.answer-opt.correct{
+  border-color:var(--success);
+  background:var(--success-soft);
+}
+.answer-opt.correct .letter{background:var(--success);color:#1a1610;border-color:var(--success)}
+.answer-opt.wrong{
+  border-color:var(--danger);
+  background:var(--danger-soft);
+}
+.answer-opt.wrong .letter{background:var(--danger);color:#1a1610;border-color:var(--danger)}
+
+/* ============================================================
+   HINT box
+   ============================================================ */
+.hint-row{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-top:14px;
+  flex-wrap:wrap;
+}
+.hint-cost{
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--text-dim);
+  letter-spacing:0.05em;
+}
+.hint-box{
+  display:none;
+  margin-top:12px;
+  padding:12px 14px;
+  background:var(--accent-soft);
+  border:1px solid var(--accent-line);
+  border-left:3px solid var(--accent);
+  border-radius:var(--r);
+  color:var(--text);
+  font-size:var(--t-sm);
+  line-height:1.55;
+  animation:fade-in 200ms var(--ease);
+}
+.hint-box.show{display:flex;gap:10px;align-items:flex-start}
+.hint-box .icon{color:var(--accent);margin-top:2px}
+.hint-box strong{color:var(--accent);font-weight:600}
+
+/* ============================================================
+   CODE VIEWER (debug puzzle) — IDE-style
+   ============================================================ */
+.code-viewer{
+  background:var(--code-bg);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  overflow:hidden;
+  margin:20px 0;
+}
+.cv-header{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 14px;
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--text-muted);
+}
+.cv-lang-badge{
+  padding:2px 8px;
+  background:var(--code-bg);
+  border:1px solid var(--border);
+  border-radius:2px;
+  font-size:10px;
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  color:var(--accent);
+}
+.cv-body{
+  padding:14px 0;
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-sm);
+  line-height:1.7;
+  overflow-x:auto;
+}
+.cv-line{
+  display:flex;
+  padding:0 14px;
+  transition:background 140ms;
+  position:relative;
+}
+.cv-line-num{
+  color:var(--text-dim);
+  min-width:28px;
+  text-align:right;
+  padding-right:16px;
+  user-select:none;
+  flex-shrink:0;
+}
+.cv-content{
+  flex:1;
+  white-space:pre-wrap;
+  color:var(--text);
+}
+.cv-line.selectable{cursor:pointer}
+.cv-line.selectable:hover{background:var(--elevated)}
+.cv-line.buggy{
+  background:var(--danger-soft);
+  border-left:2px solid var(--danger);
+}
+.cv-line.buggy .cv-line-num{color:var(--danger)}
+.cv-line.fixed{
+  background:var(--success-soft);
+  border-left:2px solid var(--success);
+}
+.cv-line.fixed .cv-line-num{color:var(--success)}
+
+/* ============================================================
+   WIRE / GIT — slot puzzles
+   ============================================================ */
+.scenario-box{
+  padding:14px 16px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-left:3px solid var(--info);
+  border-radius:var(--r);
+  margin-bottom:20px;
+  color:var(--text);
+  font-size:var(--t-sm);
+  line-height:1.55;
+}
+.scenario-box::before{
+  content:'SCENARIO';
+  display:block;
+  font-family:'JetBrains Mono', monospace;
+  font-size:10px;
+  color:var(--info);
+  letter-spacing:0.12em;
+  margin-bottom:6px;
+  font-weight:600;
+}
+
+.slot-list{display:flex;flex-direction:column;gap:6px;margin-bottom:18px}
+.slot{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:12px 14px;
+  background:var(--code-bg);
+  border:1px dashed var(--border-strong);
+  border-radius:var(--r);
+  min-height:44px;
+  color:var(--text-dim);
+  font-size:var(--t-sm);
+  transition:all 160ms var(--ease);
+}
+.slot::before{
+  content:attr(data-step);
+  font-family:'JetBrains Mono', monospace;
+  font-size:10px;
+  color:var(--text-dim);
+  min-width:24px;
+  padding:3px 6px;
+  background:var(--surface);
+  border-radius:2px;
+  border:1px solid var(--border);
+  letter-spacing:0.05em;
+}
+.slot span{flex:1}
+.slot.filled{
+  background:var(--success-soft);
+  border:1px solid var(--success);
+  color:var(--text);
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-sm);
+}
+.slot.filled::before{
+  color:var(--success);
+  background:var(--code-bg);
+  border-color:var(--success);
+}
+
+.code-blocks{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.code-block{
+  padding:11px 14px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  color:var(--text);
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-sm);
+  cursor:pointer;
+  transition:all 140ms var(--ease);
+  text-align:left;
+  width:100%;
+  line-height:1.5;
+}
+.code-block:hover:not(.placed):not(:disabled){
+  border-color:var(--accent);
+  background:var(--elevated);
+  transform:translateX(2px);
+}
+.code-block.placed{
+  opacity:0.3;
+  cursor:not-allowed;
+  text-decoration:line-through;
+}
+.code-block.wrong{
+  animation:shake 380ms;
+  border-color:var(--danger);
+  background:var(--danger-soft);
+}
+@keyframes shake{
+  0%,100%{transform:translateX(0)}
+  25%{transform:translateX(-6px)}
+  75%{transform:translateX(6px)}
+}
+
+/* Feedback box */
+.feedback-box{
+  display:none;
+  align-items:flex-start;
+  gap:10px;
+  padding:14px 16px;
+  border-radius:var(--r);
+  font-size:var(--t-sm);
+  margin-top:14px;
+  animation:fade-in 240ms var(--ease);
+  line-height:1.5;
+}
+.feedback-box.success{
+  background:var(--success-soft);
+  border:1px solid var(--success);
+  border-left:3px solid var(--success);
+  color:var(--text);
+}
+.feedback-box.error{
+  background:var(--danger-soft);
+  border:1px solid var(--danger);
+  border-left:3px solid var(--danger);
+  color:var(--text);
+}
+.feedback-box .icon{margin-top:2px;flex-shrink:0}
+.feedback-box.success .icon{color:var(--success)}
+.feedback-box.error .icon{color:var(--danger)}
+
+/* ============================================================
+   RESULT SCREEN
+   ============================================================ */
+.result-hero{
+  text-align:center;
+  padding:40px 0 24px;
+}
+.result-label{
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  color:var(--text-dim);
+  letter-spacing:0.15em;
+  text-transform:uppercase;
+  margin-bottom:12px;
+}
+.result-title{
+  font-family:'Fraunces', serif;
+  font-size:34px;
+  font-style:italic;
+  color:var(--text);
+  margin-bottom:32px;
+  font-weight:400;
+}
+.result-score{
+  font-family:'Fraunces', serif;
+  font-size:120px;
+  font-weight:500;
+  color:var(--accent);
+  line-height:1;
+  letter-spacing:-0.03em;
+  margin-bottom:8px;
+  font-variation-settings:'opsz' 144, 'SOFT' 0;
+}
+.result-of{
+  font-family:'JetBrains Mono', monospace;
+  color:var(--text-dim);
+  font-size:var(--t-sm);
+  letter-spacing:0.1em;
+  margin-bottom:24px;
+}
+.result-message{
+  color:var(--text);
+  font-family:'Fraunces', serif;
+  font-style:italic;
+  font-size:var(--t-lg);
+  max-width:44ch;
+  margin:0 auto 32px;
+  line-height:1.5;
+}
+.result-stats{
+  display:grid;
+  grid-template-columns:repeat(3, 1fr);
+  gap:0;
+  padding:20px 0;
+  border-top:1px solid var(--divider);
+  border-bottom:1px solid var(--divider);
+  margin-bottom:24px;
+}
+.result-stats > div{
+  padding:0 12px;
+  border-right:1px solid var(--divider);
+  text-align:left;
+}
+.result-stats > div:last-child{border-right:none}
+.result-stats .stat-label{
+  font-family:'JetBrains Mono', monospace;
+  font-size:10px;
+  color:var(--text-dim);
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  margin-bottom:4px;
+}
+.result-stats .stat-val{
+  color:var(--text);
+  font-size:var(--t-base);
+  font-weight:500;
+}
+.result-stack{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  justify-content:center;
+  margin:16px 0 24px;
+}
+
+/* ============================================================
+   LEADERBOARD
+   ============================================================ */
+.lb-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:24px;
+  gap:16px;
+}
+.lb-table-wrap{
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  overflow:hidden;
+}
+.lb-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:var(--t-sm);
+}
+.lb-table thead th{
+  padding:10px 14px;
+  background:var(--surface);
+  color:var(--text-dim);
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  font-weight:500;
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  text-align:left;
+  border-bottom:1px solid var(--border);
+}
+.lb-table thead th.right{text-align:right}
+.lb-table tbody td{
+  padding:12px 14px;
+  color:var(--text);
+  border-bottom:1px solid var(--divider);
+}
+.lb-table tbody tr:last-child td{border-bottom:none}
+.lb-table tbody td.right{text-align:right;font-family:'JetBrains Mono',monospace}
+.lb-rank{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:22px;
+  height:22px;
+  border-radius:50%;
+  background:var(--code-bg);
+  color:var(--text-muted);
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  border:1px solid var(--border);
+}
+.lb-first .lb-rank{background:var(--gold);color:#1a1610;border-color:var(--gold)}
+.lb-second .lb-rank{background:var(--silver);color:#1a1610;border-color:var(--silver)}
+.lb-first td{background:rgba(212,164,75,0.05)}
+.lb-second td{background:rgba(154,150,137,0.04)}
+.prize-tag{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:2px 8px;
+  border-radius:2px;
+  font-family:'JetBrains Mono', monospace;
+  font-size:10px;
+  letter-spacing:0.05em;
+  margin-left:8px;
+}
+.prize-tag.gold{background:rgba(212,164,75,0.15);color:var(--gold);border:1px solid rgba(212,164,75,0.3)}
+.prize-tag.silver{background:rgba(154,150,137,0.15);color:var(--silver);border:1px solid rgba(154,150,137,0.3)}
+
+.empty-state{
+  text-align:center;
+  padding:60px 20px;
+  color:var(--text-dim);
+}
+.empty-state .icon{
+  color:var(--text-dim);
+  margin-bottom:14px;
+}
+.empty-state h4{
+  color:var(--text-muted);
+  font-family:'Fraunces', serif;
+  font-style:italic;
+  font-weight:400;
+  margin-bottom:6px;
+}
+.empty-state p{color:var(--text-dim);font-size:var(--t-sm)}
+
+/* Sync status badge */
+.sync-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:5px 10px;
+  border-radius:var(--r);
+  font-family:'JetBrains Mono', monospace;
+  font-size:11px;
+  letter-spacing:0.04em;
+  border:1px solid var(--border);
+  background:var(--surface);
+  color:var(--text-muted);
+}
+.sync-badge .sync-dot{
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:var(--text-dim);
+  flex-shrink:0;
+}
+.sync-badge.state-live{background:var(--success-soft);color:var(--success);border-color:rgba(157,191,78,0.3)}
+.sync-badge.state-live .sync-dot{
+  background:var(--success);
+  box-shadow:0 0 0 3px rgba(157,191,78,0.2);
+  animation:sync-pulse 2s ease-in-out infinite;
+}
+.sync-badge.state-connecting{background:var(--info-soft);color:var(--info);border-color:rgba(138,181,209,0.3)}
+.sync-badge.state-connecting .sync-dot{
+  background:var(--info);
+  animation:sync-pulse 1s ease-in-out infinite;
+}
+.sync-badge.state-error{background:var(--danger-soft);color:var(--danger);border-color:rgba(214,122,110,0.3)}
+.sync-badge.state-error .sync-dot{background:var(--danger)}
+.sync-badge.state-local{background:var(--surface);color:var(--text-dim);border-color:var(--border)}
+@keyframes sync-pulse{50%{opacity:0.4}}
+
+/* ============================================================
+   ADMIN
+   ============================================================ */
+.admin-secret{
+  position:fixed;
+  bottom:12px;
+  right:12px;
+  width:28px;
+  height:28px;
+  border-radius:50%;
+  cursor:pointer;
+  opacity:0;
+  z-index:100;
+}
+.admin-login-box{
+  max-width:400px;
+  margin:80px auto;
+  padding:32px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  text-align:center;
+}
+.admin-login-icon{
+  color:var(--accent);
+  margin-bottom:16px;
+}
+.admin-tabs{
+  display:flex;
+  gap:4px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:24px;
+}
+.admin-tab{
+  padding:10px 16px;
+  background:none;
+  color:var(--text-muted);
+  border:none;
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  text-transform:uppercase;
+  letter-spacing:0.06em;
+  cursor:pointer;
+  border-bottom:2px solid transparent;
+  margin-bottom:-1px;
+}
+.admin-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.admin-tab:hover:not(.active){color:var(--text)}
+.admin-section.hidden{display:none}
+.admin-stats{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));
+  gap:12px;
+  margin-bottom:24px;
+}
+.stat-card{
+  padding:14px 16px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+}
+.stat-card .val{
+  font-family:'Fraunces', serif;
+  font-size:26px;
+  color:var(--accent);
+  font-weight:500;
+  line-height:1;
+  margin-bottom:6px;
+}
+.stat-card .lbl{
+  font-family:'JetBrains Mono', monospace;
+  font-size:10px;
+  color:var(--text-dim);
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+}
+.admin-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.admin-table{width:100%;font-size:var(--t-sm);border-collapse:collapse}
+.admin-table th, .admin-table td{
+  padding:8px 10px;
+  text-align:left;
+  border-bottom:1px solid var(--divider);
+}
+.admin-table th{
+  color:var(--text-dim);
+  font-family:'JetBrains Mono', monospace;
+  font-size:var(--t-xs);
+  text-transform:uppercase;
+  letter-spacing:0.06em;
+  font-weight:500;
+}
+.admin-table td{color:var(--text)}
+.admin-table tr.editing{background:var(--accent-soft)}
+.admin-table input, .admin-table select{padding:5px 8px;font-size:var(--t-sm)}
+.action-btn{
+  padding:5px 10px;
+  font-size:var(--t-xs);
+  background:transparent;
+  color:var(--text-muted);
+  border:1px solid var(--border);
+  border-radius:2px;
+  cursor:pointer;
+  margin-right:4px;
+  font-family:'JetBrains Mono', monospace;
+}
+.action-btn:hover{color:var(--text);border-color:var(--text-muted)}
+.action-btn.delete:hover{color:var(--danger);border-color:var(--danger)}
+
+/* ============================================================
+   CONFETTI (subtle, warm palette)
+   ============================================================ */
+.confetti{
+  position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:1000;
+}
+.confetti-piece{
+  position:absolute;top:-20px;
+  animation:confetti-fall 3.6s ease-in forwards;
+}
+@keyframes confetti-fall{
+  0%{transform:translateY(0) rotate(0deg);opacity:1}
+  100%{transform:translateY(105vh) rotate(720deg);opacity:0}
+}
+
+/* ============================================================
+   MISC
+   ============================================================ */
+.hidden{display:none !important}
+.subtitle{color:var(--text-muted);font-size:var(--t-sm);margin-bottom:16px}
+
+/* Reduced motion */
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:0.01ms !important;transition-duration:0.01ms !important}
+  .cursor{animation:none;opacity:1}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     SVG ICON LIBRARY — inline symbols, referenced via <use>
+     ============================================================ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- brand / hero -->
+    <symbol id="i-brand" viewBox="0 0 24 24"><path d="M4 4h16v16H4z M4 12h16 M12 4v16" stroke-width="1.5"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M4 4h16v16H4z M8 9l3 3-3 3 M13 15h4"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14 M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12 M18 6L6 18"/></symbol>
+    <symbol id="i-lightbulb" viewBox="0 0 24 24"><path d="M9 18h6 M10 22h4 M12 2a7 7 0 0 0-4 12.5c1 1 1.5 1.7 1.5 3.5h5c0-1.8.5-2.5 1.5-3.5A7 7 0 0 0 12 2z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M6 4h12v6a6 6 0 0 1-12 0V4z M6 6H3v2a3 3 0 0 0 3 3 M18 6h3v2a3 3 0 0 1-3 3 M10 18h4v4h-4z M8 22h8"/></symbol>
+    <symbol id="i-medal" viewBox="0 0 24 24"><circle cx="12" cy="15" r="6"/><path d="M12 12v-1 M8 3l4 6 4-6 M8 3h8"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2 M5 3h14l3 9v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7l3-9z"/></symbol>
+    <symbol id="i-tools" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+    <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z M12 15l-3-3a22 22 0 0 1 2-3.95A12.9 12.9 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0 M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></symbol>
+
+    <!-- domains -->
+    <symbol id="i-heart-pulse" viewBox="0 0 24 24"><path d="M3.5 13H7l2-3 2 6 2-4h6.5 M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1 M18 12a2 2 0 0 0 0 4h3v-4h-3z"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+    <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 4 13V6h7a7 7 0 0 1 7 7 M11 20v-7 M11 13c0-4 3-7 7-7"/></symbol>
+
+    <!-- tech stack -->
+    <symbol id="i-atom" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><path d="M12 2c-2.5 5-2.5 15 0 20 M12 2c2.5 5 2.5 15 0 20 M2 12c5-2.5 15-2.5 20 0"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2.5-1.5-3.5C10.5 6 12.5 4 15 3c-.5 2 .5 3.5 2 4.5C18 8.5 19 10 19 13a7 7 0 1 1-14 0c0-1.5 0-2.5 1.5-4 1 1.5 2.5 2 3.5 1.5"/></symbol>
+    <symbol id="i-frame" viewBox="0 0 24 24"><path d="M22 6H2 M22 18H2 M6 2v20 M18 2v20"/></symbol>
+    <symbol id="i-hex" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></symbol>
+    <symbol id="i-snake" viewBox="0 0 24 24"><path d="M20 12a4 4 0 0 0-4-4h-2a4 4 0 0 1-4-4V2 M4 12a4 4 0 0 1 4-4h2 M4 12v6a4 4 0 0 0 4 4h6 M8 6h.01 M16 18h.01"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.3 7L12 12l8.7-5 M12 22V12"/></symbol>
+    <symbol id="i-elephant" viewBox="0 0 24 24"><path d="M8 4h6a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4h-2v3 M12 18h-4a4 4 0 0 1-4-4V8 M8 10h.01"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5 M3 12a9 3 0 0 0 18 0"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.78 6 6 0 0 0-11.53 2.28A4 4 0 0 0 5 19h12.5z"/></symbol>
+    <symbol id="i-ship" viewBox="0 0 24 24"><path d="M12 10.9V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v5.9 M12 10.9c2 0 4-.4 6-1.4l1 5.5-6 4-6-4 1-5.5c2 1 4 1.4 4 1.4z M2 20l2 2h16l2-2"/></symbol>
+    <symbol id="i-kube" viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z M12 12l9-5 M12 12l-9-5 M12 12v10"/></symbol>
+
+    <!-- puzzle categories -->
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" class="icon-fill"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5"/></symbol>
+    <symbol id="i-brain" viewBox="0 0 24 24"><path d="M12 5a3 3 0 1 0-5.9-.5A3 3 0 0 0 3 8a3 3 0 0 0 1.5 5A3 3 0 0 0 6 19a3 3 0 0 0 6 0V5z M12 5a3 3 0 1 1 5.9-.5A3 3 0 0 1 21 8a3 3 0 0 1-1.5 5A3 3 0 0 1 18 19a3 3 0 0 1-6 0V5z"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5 M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></symbol>
+    <symbol id="i-bug" viewBox="0 0 24 24"><path d="M8 2l2 2h4l2-2 M12 6v14 M6 8h12v6a6 6 0 0 1-12 0V8z M4 10l2 2 M20 10l-2 2 M4 18l2-2 M20 18l-2-2"/></symbol>
+    <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v6a6 6 0 0 0 6 6h3"/></symbol>
+
+    <!-- misc -->
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 2L2 20h20L12 2z M12 9v4 M12 17h.01"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01 M12 12v4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5 M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  </defs>
+</svg>
+
+<div class="admin-secret" onclick="goTo('screen-admin-login')" title="Admin"></div>
+
+<div class="app">
+
+
+<!-- =========================================================
+     WELCOME
+     ========================================================= -->
+<div class="screen active" id="screen-welcome">
+  <div class="hero">
+    <div class="hero-meta">
+      <div class="hero-brand">
+        <span class="hero-brand-mark"><svg class="icon icon-lg"><use href="#i-terminal"/></svg></span>
+        <span>KOCHI/HACKATHON</span>
+      </div>
+      <div class="hero-date">MAR 15–16 &nbsp;·&nbsp; 2026</div>
+    </div>
+
+    <h1>Build something <em>real</em> before the timer runs out.</h1>
+
+    <p class="lead hero-tag">Six puzzles. Actual code. No fluff. You have fifteen minutes to ship an idea — the fastest builders take home the prize pool.</p>
+
+    <div class="terminal-preview">
+      <div class="terminal-bar">
+        <div class="terminal-dot"></div>
+        <div class="terminal-dot"></div>
+        <div class="terminal-dot"></div>
+        <div class="terminal-title">~/kochi-hackathon</div>
+      </div>
+      <div class="terminal-body">
+        <div><span class="prompt">$</span><span class="cmd">init hackathon --duration 15m --puzzles 6</span></div>
+        <div class="out"><span class="comment"># booting rig ...</span></div>
+        <div class="out">→ registration ok</div>
+        <div class="out">→ 6 puzzles loaded &nbsp;<span style="color:var(--syn-comment)">// roadmap · stack · algo · wire · debug · git</span></div>
+        <div class="out">→ scoring: right +pts, wrong −pts</div>
+        <div class="out">→ hints available (soft penalty)</div>
+        <div><span class="prompt">$</span><span class="cmd">start<span class="cursor"></span></span></div>
+      </div>
+    </div>
+
+    <div class="hero-numbers">
+      <div><div class="num">6</div><div class="num-label">Puzzles</div></div>
+      <div><div class="num">15<span style="font-size:18px;color:var(--text-muted)">m</span></div><div class="num-label">Timer</div></div>
+      <div><div class="num">100</div><div class="num-label">Max score</div></div>
+    </div>
+
+    <div class="prize-card">
+      <h4><svg class="icon"><use href="#i-trophy"/></svg> Prize pool</h4>
+      <ul class="prize-list">
+        <li><strong>1ST</strong> <span>Fastest high score walks with the day</span></li>
+        <li><strong>2ND</strong> <span>Runner-up rig — still a proper win</span></li>
+      </ul>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" onclick="goTo('screen-register')">
+        Start building <svg class="icon"><use href="#i-arrow-right"/></svg>
+      </button>
+      <button class="btn-secondary btn" onclick="goTo('screen-leaderboard')">View leaderboard</button>
+    </div>
+  </div>
+</div>
+
+<!-- =========================================================
+     REGISTER
+     ========================================================= -->
+<div class="screen" id="screen-register">
+  <div class="puzzle-head">
+    <div class="puzzle-num">Registration</div>
+    <h2>Who's building?</h2>
+    <p>Quick details so we can put you on the leaderboard and tell you if you won.</p>
+  </div>
+
+  <div class="form-row">
+    <label for="reg-name">Full name</label>
+    <input type="text" id="reg-name" placeholder="Anaswer Ajay" />
+    <div class="error-msg" id="err-name">Please enter your name</div>
+  </div>
+  <div class="form-row">
+    <label for="reg-phone">Phone</label>
+    <input type="tel" id="reg-phone" placeholder="+91 98765 43210" />
+    <div class="error-msg" id="err-phone">Please enter a valid phone number</div>
+  </div>
+  <div class="form-row">
+    <label for="reg-email">Email</label>
+    <input type="email" id="reg-email" placeholder="you@example.com" />
+    <div class="error-msg" id="err-email">Please enter a valid email</div>
+  </div>
+  <div class="form-row">
+    <label for="reg-location">Where are you from?</label>
+    <input type="text" id="reg-location" placeholder="Kozhikode, Kerala" />
+    <div class="error-msg" id="err-location">Please tell us where you're from</div>
+  </div>
+  <div class="form-row">
+    <label for="reg-occupation">What do you do?</label>
+    <select id="reg-occupation">
+      <option value="">Pick one</option>
+      <option value="Student">Student</option>
+      <option value="Software Engineer">Software Engineer</option>
+      <option value="Designer">Designer</option>
+      <option value="Founder">Founder</option>
+      <option value="Product Manager">Product Manager</option>
+      <option value="Other">Other</option>
+    </select>
+    <div class="error-msg" id="err-occupation">Please select an option</div>
+  </div>
+
+  <div class="checkbox-row">
+    <input type="checkbox" id="reg-consent" />
+    <label for="reg-consent">I'm cool with organizers reaching out about the results and future events.</label>
+  </div>
+  <div class="error-msg" id="err-consent">Please agree to continue</div>
+
+  <div class="btn-row">
+    <button class="btn" onclick="validateAndStart()">Begin — start the clock <svg class="icon"><use href="#i-arrow-right"/></svg></button>
+    <button class="btn-secondary btn" onclick="goTo('screen-welcome')">Back</button>
+  </div>
+</div>
+
+<!-- =========================================================
+     DOMAIN
+     ========================================================= -->
+<div class="screen" id="screen-domain">
+  <div class="game-header">
+    <div class="gh-timer"><svg class="icon"><use href="#i-clock"/></svg><span class="game-time">15:00</span></div>
+    <div class="gh-score"><span class="gh-score-label">Score</span><span class="game-score">0</span></div>
+    <div class="gh-progress">
+      <div class="gh-step current"></div><div class="gh-step"></div><div class="gh-step"></div>
+      <div class="gh-step"></div><div class="gh-step"></div><div class="gh-step"></div>
+      <div class="gh-step"></div><div class="gh-step"></div>
+    </div>
+    <div class="gh-label">Setup</div>
+  </div>
+
+  <div class="puzzle-head">
+    <div class="puzzle-num">Warm-up · 01</div>
+    <h2>What are you building?</h2>
+    <p>Pick a domain. Your feature roadmap, stack, and scenarios will match it.</p>
+  </div>
+
+  <div class="select-grid">
+    <div class="select-card" tabindex="0" onclick="selectDomain(this,'health')">
+      <svg class="icon check"><use href="#i-check"/></svg>
+      <div class="card-icon"><svg class="icon icon-lg"><use href="#i-heart-pulse"/></svg></div>
+      <div class="label">HealthTech</div>
+      <div class="desc">Remote care, patient records, wellness apps</div>
+    </div>
+    <div class="select-card" tabindex="0" onclick="selectDomain(this,'fintech')">
+      <svg class="icon check"><use href="#i-check"/></svg>
+      <div class="card-icon"><svg class="icon icon-lg"><use href="#i-wallet"/></svg></div>
+      <div class="label">FinTech</div>
+      <div class="desc">Payments, banking, investment tools</div>
+    </div>
+    <div class="select-card" tabindex="0" onclick="selectDomain(this,'edtech')">
+      <svg class="icon check"><use href="#i-check"/></svg>
+      <div class="card-icon"><svg class="icon icon-lg"><use href="#i-book"/></svg></div>
+      <div class="label">EduTech</div>
+      <div class="desc">Learning, courses, student platforms</div>
+    </div>
+    <div class="select-card" tabindex="0" onclick="selectDomain(this,'green')">
+      <svg class="icon check"><use href="#i-check"/></svg>
+      <div class="card-icon"><svg class="icon icon-lg"><use href="#i-leaf"/></svg></div>
+      <div class="label">GreenTech</div>
+      <div class="desc">Sustainability, carbon, clean energy</div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn" id="btn-domain" disabled onclick="goTo('screen-features')">Plan your roadmap <svg class="icon"><use href="#i-arrow-right"/></svg></button>
+  </div>
+</div>
+
+
+<!-- =========================================================
+     FEATURES (roadmap)
+     ========================================================= -->
+<div class="screen" id="screen-features">
+  <div class="game-header">
+    <div class="gh-timer"><svg class="icon"><use href="#i-clock"/></svg><span class="game-time">15:00</span></div>
+    <div class="gh-score"><span class="gh-score-label">Score</span><span class="game-score">0</span></div>
+    <div class="gh-progress">
+      <div class="gh-step done"></div><div class="gh-step current"></div><div class="gh-step"></div>
+      <div class="gh-step"></div><div class="gh-step"></div><div class="gh-step"></div>
+      <div class="gh-step"></div><div class="gh-step"></div>
+    </div>
+    <div class="gh-label">P1 · Roadmap</div>
+  </div>
+
+  <div class="puzzle-head">
+    <div class="puzzle-num">Puzzle 01 · Roadmap</div>
+    <h2>Pick your MVP features</h2>
+    <p>Choose <strong style="color:var(--accent)">3 features</strong> — the ones that would actually ship in your first release.</p>
+  </div>
+
+  <div class="build-area" id="feature-build">
+    <span class="empty">Your roadmap is empty — pick 3 features below.</span>
+  </div>
+
+  <div class="hint-row">
+    <button class="btn-hint" id="btn-hint-features" onclick="showHint('features')">
+      <svg class="icon"><use href="#i-lightbulb"/></svg> Show hint
+    </button>
+    <span class="hint-cost">−40% score on this puzzle</span>
+  </div>
+  <div class="hint-box" id="hint-features">
+    <svg class="icon icon-lg"><use href="#i-lightbulb"/></svg>
+    <div><strong>Hint · </strong><span id="hint-text-features"></span></div>
+  </div>
+
+  <div class="feature-cards" id="feature-list"></div>
+
+  <div class="btn-row">
+    <button class="btn" id="btn-features" disabled onclick="goTo('screen-stack')">Lock roadmap <svg class="icon"><use href="#i-arrow-right"/></svg></button>
+  </div>
+</div>
+
+<!-- =========================================================
+     STACK
+     ========================================================= -->
+<div class="screen" id="screen-stack">
+  <div class="game-header">
+    <div class="gh-timer"><svg class="icon"><use href="#i-clock"/></svg><span class="game-time">15:00</span></div>
+    <div class="gh-score"><span class="gh-score-label">Score</span><span class="game-score">0</span></div>
+    <div class="gh-progress">
+      <div class="gh-step done"></div><div class="gh-step done"></div><div class="gh-step current"></div>
+      <div class="gh-step"></div><div class="gh-step"></div><div class="gh-step"></div>
+      <div class="gh-step"></div><div class="gh-step"></div>
+    </div>
+    <div class="gh-label">P2 · Stack</div>
+  </div>
+
+  <div class="puzzle-head">
+    <div class="puzzle-num">Puzzle 02 · Stack</div>
+    <h2>Choose your tech</h2>
+    <p>One from each layer — frontend, backend, database, devops. Pick tools you'd actually reach for.</p>
+  </div>
+
+  <div class="build-area" id="stack-build">
+    <span class="empty">Nothing picked yet. Start with a frontend framework.</span>
+  </div>
+
+  <div class="stack-section">
+    <div class="stack-label">Frontend</div>
+    <div class="stack-grid">
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'React','frontend')"><span class="stack-icon"><svg class="icon"><use href="#i-atom"/></svg></span>React</div>
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'Vue','frontend')"><span class="stack-icon"><svg class="icon"><use href="#i-frame"/></svg></span>Vue</div>
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'Svelte','frontend')"><span class="stack-icon"><svg class="icon"><use href="#i-flame"/></svg></span>Svelte</div>
+    </div>
+  </div>
+
+  <div class="stack-section">
+    <div class="stack-label">Backend</div>
+    <div class="stack-grid">
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'Node.js','backend')"><span class="stack-icon"><svg class="icon"><use href="#i-hex"/></svg></span>Node.js</div>
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'Python','backend')"><span class="stack-icon"><svg class="icon"><use href="#i-snake"/></svg></span>Python</div>
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'Go','backend')"><span class="stack-icon"><svg class="icon"><use href="#i-cube"/></svg></span>Go</div>
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'Rust','backend')"><span class="stack-icon"><svg class="icon"><use href="#i-bolt"/></svg></span>Rust</div>
+    </div>
+  </div>
+
+  <div class="stack-section">
+    <div class="stack-label">Database</div>
+    <div class="stack-grid">
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'PostgreSQL','database')"><span class="stack-icon"><svg class="icon"><use href="#i-elephant"/></svg></span>PostgreSQL</div>
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'MongoDB','database')"><span class="stack-icon"><svg class="icon"><use href="#i-database"/></svg></span>MongoDB</div>
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'Redis','database')"><span class="stack-icon"><svg class="icon"><use href="#i-bolt"/></svg></span>Redis</div>
+    </div>
+  </div>
+
+  <div class="stack-section">
+    <div class="stack-label">DevOps</div>
+    <div class="stack-grid">
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'AWS','devops')"><span class="stack-icon"><svg class="icon"><use href="#i-cloud"/></svg></span>AWS</div>
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'Docker','devops')"><span class="stack-icon"><svg class="icon"><use href="#i-ship"/></svg></span>Docker</div>
+      <div class="stack-card" tabindex="0" onclick="toggleTech(this,'Kubernetes','devops')"><span class="stack-icon"><svg class="icon"><use href="#i-kube"/></svg></span>Kubernetes</div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn" id="btn-stack" disabled onclick="goTo('screen-algo')">Rapid round <svg class="icon"><use href="#i-arrow-right"/></svg></button>
+  </div>
+</div>
+
+<!-- =========================================================
+     ALGO (rapid round)
+     ========================================================= -->
+<div class="screen" id="screen-algo">
+  <div class="game-header">
+    <div class="gh-timer"><svg class="icon"><use href="#i-clock"/></svg><span class="game-time">15:00</span></div>
+    <div class="gh-score"><span class="gh-score-label">Score</span><span class="game-score">0</span></div>
+    <div class="gh-progress">
+      <div class="gh-step done"></div><div class="gh-step done"></div><div class="gh-step done"></div>
+      <div class="gh-step current"></div><div class="gh-step"></div><div class="gh-step"></div>
+      <div class="gh-step"></div><div class="gh-step"></div>
+    </div>
+    <div class="gh-label">P3 · Rapid round</div>
+  </div>
+
+  <div class="puzzle-head">
+    <div class="puzzle-num">Puzzle 03 · Rapid round</div>
+    <h2>Five quick ones</h2>
+    <p>Complexity, output prediction, and a couple of riddles. Trust your gut.</p>
+  </div>
+
+  <div class="rapid-progress" id="rapid-progress"></div>
+  <div id="algo-container"></div>
+
+  <div class="btn-row" id="algo-nav" style="display:none">
+    <button class="btn" id="btn-algo-next" onclick="nextAlgoQuestion()">Next question <svg class="icon"><use href="#i-arrow-right"/></svg></button>
+  </div>
+</div>
+
+<!-- =========================================================
+     WIRE (assemble in order)
+     ========================================================= -->
+<div class="screen" id="screen-wire">
+  <div class="game-header">
+    <div class="gh-timer"><svg class="icon"><use href="#i-clock"/></svg><span class="game-time">15:00</span></div>
+    <div class="gh-score"><span class="gh-score-label">Score</span><span class="game-score">0</span></div>
+    <div class="gh-progress">
+      <div class="gh-step done"></div><div class="gh-step done"></div><div class="gh-step done"></div>
+      <div class="gh-step done"></div><div class="gh-step current"></div><div class="gh-step"></div>
+      <div class="gh-step"></div><div class="gh-step"></div>
+    </div>
+    <div class="gh-label">P4 · Wire the logic</div>
+  </div>
+
+  <div class="puzzle-head">
+    <div class="puzzle-num">Puzzle 04 · Wire it up</div>
+    <h2>Put the code in order</h2>
+    <p>Each slot needs one line. Click a code block below and it'll snap into the next open slot — but only if it belongs there.</p>
+  </div>
+
+  <div class="slot-list" id="wire-slots"></div>
+
+  <div class="hint-row">
+    <button class="btn-hint" id="btn-hint-wire" onclick="showHint('wire')">
+      <svg class="icon"><use href="#i-lightbulb"/></svg> Show hint
+    </button>
+    <span class="hint-cost">−40% score on this puzzle</span>
+  </div>
+  <div class="hint-box" id="hint-wire">
+    <svg class="icon icon-lg"><use href="#i-lightbulb"/></svg>
+    <div><strong>Hint · </strong><span id="hint-text-wire"></span></div>
+  </div>
+
+  <div class="stack-label" style="margin-top:20px">Available blocks</div>
+  <div class="code-blocks" id="wire-options"></div>
+  <div class="feedback-box" id="wire-feedback"></div>
+
+  <div class="btn-row">
+    <button class="btn" id="btn-wire" disabled onclick="goTo('screen-debug')">Debug the system <svg class="icon"><use href="#i-arrow-right"/></svg></button>
+  </div>
+</div>
+
+<!-- =========================================================
+     DEBUG
+     ========================================================= -->
+<div class="screen" id="screen-debug">
+  <div class="game-header">
+    <div class="gh-timer"><svg class="icon"><use href="#i-clock"/></svg><span class="game-time">15:00</span></div>
+    <div class="gh-score"><span class="gh-score-label">Score</span><span class="game-score">0</span></div>
+    <div class="gh-progress">
+      <div class="gh-step done"></div><div class="gh-step done"></div><div class="gh-step done"></div>
+      <div class="gh-step done"></div><div class="gh-step done"></div><div class="gh-step current"></div>
+      <div class="gh-step"></div><div class="gh-step"></div>
+    </div>
+    <div class="gh-label">P5 · Debug · <span id="debug-round-label">Round 1/3</span></div>
+  </div>
+
+  <div class="puzzle-head">
+    <div class="puzzle-num">Puzzle 05 · Debug</div>
+    <h2>Find the bug</h2>
+    <p>Read the code. Click the line where the bug lives. You get one shot per round — three rounds total.</p>
+  </div>
+
+  <div class="scenario-box" id="debug-scenario"></div>
+  <div class="code-viewer" id="debug-viewer"></div>
+
+  <div class="hint-row">
+    <button class="btn-hint" id="btn-hint-debug" onclick="showHint('debug')">
+      <svg class="icon"><use href="#i-lightbulb"/></svg> Show hint
+    </button>
+    <span class="hint-cost">−40% on this round</span>
+  </div>
+  <div class="hint-box" id="hint-debug">
+    <svg class="icon icon-lg"><use href="#i-lightbulb"/></svg>
+    <div><strong>Hint · </strong><span id="hint-text-debug"></span></div>
+  </div>
+
+  <div class="feedback-box" id="debug-feedback"></div>
+
+  <div class="btn-row">
+    <button class="btn" id="btn-debug" disabled onclick="nextDebugRound()">Next round <svg class="icon"><use href="#i-arrow-right"/></svg></button>
+  </div>
+</div>
+
+<!-- =========================================================
+     GIT RESCUE
+     ========================================================= -->
+<div class="screen" id="screen-git">
+  <div class="game-header">
+    <div class="gh-timer"><svg class="icon"><use href="#i-clock"/></svg><span class="game-time">15:00</span></div>
+    <div class="gh-score"><span class="gh-score-label">Score</span><span class="game-score">0</span></div>
+    <div class="gh-progress">
+      <div class="gh-step done"></div><div class="gh-step done"></div><div class="gh-step done"></div>
+      <div class="gh-step done"></div><div class="gh-step done"></div><div class="gh-step done"></div>
+      <div class="gh-step done"></div><div class="gh-step current"></div>
+    </div>
+    <div class="gh-label">P6 · Git rescue</div>
+  </div>
+
+  <div class="puzzle-head">
+    <div class="puzzle-num">Puzzle 06 · Git rescue</div>
+    <h2>Fix the repo</h2>
+    <p>Put the git commands in the right order. Same rules as wire — click a block and it'll drop into the next open slot if it fits.</p>
+  </div>
+
+  <div class="scenario-box" id="git-scenario"></div>
+  <div class="slot-list" id="git-slots"></div>
+
+  <div class="hint-row">
+    <button class="btn-hint" id="btn-hint-git" onclick="showHint('git')">
+      <svg class="icon"><use href="#i-lightbulb"/></svg> Show hint
+    </button>
+    <span class="hint-cost">−40% score on this puzzle</span>
+  </div>
+  <div class="hint-box" id="hint-git">
+    <svg class="icon icon-lg"><use href="#i-lightbulb"/></svg>
+    <div><strong>Hint · </strong><span id="hint-text-git"></span></div>
+  </div>
+
+  <div class="stack-label" style="margin-top:20px">Git commands</div>
+  <div class="code-blocks" id="git-options"></div>
+  <div class="feedback-box" id="git-feedback"></div>
+
+  <div class="btn-row">
+    <button class="btn" id="btn-git" disabled onclick="finishGame()">Launch project <svg class="icon"><use href="#i-rocket"/></svg></button>
+  </div>
+</div>
+
+
+<!-- =========================================================
+     RESULT
+     ========================================================= -->
+<div class="screen" id="screen-result">
+  <div class="result-hero">
+    <div class="result-label">Ship complete</div>
+    <div class="result-title" id="res-project-name">Your Project</div>
+    <div class="result-score" id="res-score">0</div>
+    <div class="result-of">out of 100</div>
+    <div class="result-message serif-italic" id="res-message"></div>
+
+    <div class="result-stats">
+      <div>
+        <div class="stat-label">Builder</div>
+        <div class="stat-val" id="res-name">—</div>
+      </div>
+      <div>
+        <div class="stat-label">Role</div>
+        <div class="stat-val" id="res-role">—</div>
+      </div>
+      <div>
+        <div class="stat-label">Time</div>
+        <div class="stat-val mono" id="res-time">—</div>
+      </div>
+    </div>
+
+    <div class="stack-label" style="margin-bottom:12px">Your stack</div>
+    <div class="result-stack" id="res-stack"></div>
+
+    <div class="btn-row" style="justify-content:center">
+      <button class="btn" onclick="goTo('screen-leaderboard')">View leaderboard <svg class="icon"><use href="#i-trophy"/></svg></button>
+      <button class="btn btn-secondary" onclick="resetGame()">Play again</button>
+    </div>
+  </div>
+</div>
+
+<!-- =========================================================
+     LEADERBOARD
+     ========================================================= -->
+<div class="screen" id="screen-leaderboard">
+  <div class="lb-head">
+    <div>
+      <div class="puzzle-num">Live standings</div>
+      <h2>Leaderboard</h2>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="sync-badge state-local"><span class="sync-dot"></span><span class="sync-label">Local only</span></span>
+      <button class="btn-secondary btn btn-small" onclick="syncFromCloud()" title="Refresh from cloud">
+        <svg class="icon"><use href="#i-arrow-right"/></svg> Refresh
+      </button>
+      <button class="btn-secondary btn btn-small" onclick="goTo('screen-welcome')">
+        <svg class="icon"><use href="#i-arrow-left"/></svg> Back
+      </button>
+    </div>
+  </div>
+
+  <div id="lb-empty" class="empty-state hidden">
+    <svg class="icon icon-3xl"><use href="#i-inbox"/></svg>
+    <h4>No entries yet</h4>
+    <p>Be the first to build. Play through and stake your rank.</p>
+  </div>
+
+  <div id="lb-table" class="lb-table-wrap">
+    <table class="lb-table">
+      <thead>
+        <tr>
+          <th style="width:40px">#</th>
+          <th>Builder</th>
+          <th>Domain</th>
+          <th class="right">Score</th>
+          <th class="right">Time</th>
+        </tr>
+      </thead>
+      <tbody id="lb-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- =========================================================
+     ADMIN LOGIN
+     ========================================================= -->
+<div class="screen" id="screen-admin-login">
+  <div class="admin-login-box">
+    <div class="admin-login-icon">
+      <svg class="icon icon-2xl"><use href="#i-lock"/></svg>
+    </div>
+    <h3 style="margin-bottom:8px">Organizer access</h3>
+    <p style="font-size:var(--t-sm);color:var(--text-muted);margin-bottom:20px">Restricted area. Enter password to continue.</p>
+    <div class="form-row">
+      <input type="password" id="admin-password" placeholder="Password" onkeypress="if(event.key==='Enter') tryAdminLogin()" />
+      <div class="error-msg" id="err-admin-password">Wrong password</div>
+    </div>
+    <div class="btn-row" style="justify-content:center">
+      <button class="btn" onclick="tryAdminLogin()">Enter</button>
+      <button class="btn-secondary btn" onclick="goTo('screen-welcome')">Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- =========================================================
+     ADMIN DASHBOARD
+     ========================================================= -->
+<div class="screen" id="screen-admin">
+  <div class="lb-head">
+    <div>
+      <div class="puzzle-num">Organizer</div>
+      <h2><svg class="icon icon-xl" style="vertical-align:-4px;color:var(--accent)"><use href="#i-tools"/></svg> Dashboard</h2>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="sync-badge state-local"><span class="sync-dot"></span><span class="sync-label">Local only</span></span>
+      <button class="btn-secondary btn btn-small" onclick="syncFromCloud()">Refresh</button>
+      <button class="btn-secondary btn btn-small" onclick="goTo('screen-welcome')">Log out</button>
+    </div>
+  </div>
+
+  <div class="admin-stats" id="admin-stats"></div>
+
+  <div class="admin-tabs">
+    <button class="admin-tab active" onclick="switchAdminTab('registrations')">Registrations</button>
+    <button class="admin-tab" onclick="switchAdminTab('add')">Add entry</button>
+    <button class="admin-tab" onclick="switchAdminTab('leaderboard')">Public view</button>
+  </div>
+
+  <div id="admin-tab-registrations" class="admin-section">
+    <div class="admin-actions">
+      <button class="btn btn-secondary btn-small" onclick="downloadCSV()">
+        <svg class="icon"><use href="#i-download"/></svg> Export CSV
+      </button>
+      <button class="btn btn-secondary btn-small" onclick="clearAllEntries()">Clear all</button>
+    </div>
+    <div id="admin-registrations-table"></div>
+  </div>
+
+  <div id="admin-tab-add" class="admin-section hidden">
+    <p class="subtitle">Manually add an entry — useful for late walk-ins or paper submissions.</p>
+    <div class="form-row"><label>Name</label><input type="text" id="add-name" /></div>
+    <div class="form-row"><label>Phone</label><input type="tel" id="add-phone" /></div>
+    <div class="form-row"><label>Email</label><input type="email" id="add-email" /></div>
+    <div class="form-row"><label>Location</label><input type="text" id="add-location" /></div>
+    <div class="form-row">
+      <label>Occupation</label>
+      <select id="add-occupation">
+        <option value="Student">Student</option>
+        <option value="Software Engineer">Software Engineer</option>
+        <option value="Designer">Designer</option>
+        <option value="Founder">Founder</option>
+        <option value="Product Manager">Product Manager</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Domain</label>
+      <select id="add-domain">
+        <option value="HealthTech">HealthTech</option>
+        <option value="FinTech">FinTech</option>
+        <option value="EduTech">EduTech</option>
+        <option value="GreenTech">GreenTech</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Score (0–100)</label><input type="text" id="add-score" placeholder="75" /></div>
+    <div class="form-row"><label>Time in seconds</label><input type="text" id="add-time" placeholder="420" /></div>
+    <div class="form-row"><label>Stack (comma separated)</label><input type="text" id="add-stack" placeholder="React, Node.js, PostgreSQL, Docker" /></div>
+    <div class="btn-row">
+      <button class="btn" onclick="addEntry()">Add to leaderboard</button>
+      <button class="btn btn-secondary" onclick="clearAddForm()">Clear form</button>
+    </div>
+  </div>
+
+  <div id="admin-tab-leaderboard" class="admin-section hidden">
+    <h3>Live leaderboard</h3>
+    <p class="subtitle">Exactly what players see. Top 2 highlighted.</p>
+    <div id="admin-lb-container"></div>
+  </div>
+</div>
+
+</div>
+<!-- /.app -->
+
+<script>
+// ============================================================
+// CONFIG
+// ============================================================
+const ADMIN_PASSWORD = "kochi2026";
+const LB_KEY = 'kochi_hackathon_lb_v4';
+const GAME_TIME = 900; // 15 minutes
+
+// ============================================================
+// SHARED LEADERBOARD — Google Sheets backend (via Apps Script)
+// ============================================================
+// SETUP (10 min, free, no signup beyond a Google account):
+//
+//   1. Go to  https://sheets.new  to create a new Google Sheet.
+//      Rename it something like "Kochi Hackathon 2026".
+//
+//   2. In the menu:  Extensions  ->  Apps Script.
+//      Delete whatever code is there.
+//
+//   3. Open the file  google_sheets_backend.gs  (shipped alongside
+//      this HTML) and paste ALL of its contents into the editor.
+//      Save with Ctrl+S (or Cmd+S).
+//
+//   4. Click  Deploy  ->  New deployment
+//        Gear icon  ->  Select type  ->  Web app
+//        Description:   "Kochi Hackathon backend"
+//        Execute as:    Me
+//        Who has access: Anyone
+//      Click  Deploy. Google will ask you to authorize — approve it.
+//
+//   5. Keep the Apps Script Web App URL for the Vercel environment variable
+//      GOOGLE_SHEETS_WEB_APP_URL. Do NOT put it in this HTML.
+//
+//   6. The browser calls /api/leaderboard on this Vercel site. Vercel
+//      calls Apps Script server-side, avoiding the Apps Script CORS issue.
+//      Every scan therefore writes to the same Google Sheet.
+//
+// If SHEETS_URL is empty, the game falls back to per-device
+// localStorage (fine for testing, breaks with multiple phones).
+// ============================================================
+const SHEETS_URL = '/api/leaderboard'; // Vercel same-origin proxy -> Google Apps Script -> Google Sheet
+
+const CLOUD_ENABLED = !!SHEETS_URL;
+let cachedLeaderboard = [];
+let cloudSyncState = CLOUD_ENABLED ? 'connecting' : 'local'; // connecting | live | error | local
+let cloudPollInterval = null;
+
+const domainNames = { health:'HealthTech', fintech:'FinTech', edtech:'EduTech', green:'GreenTech' };
+const domainIcons = { health:'i-heart-pulse', fintech:'i-wallet', edtech:'i-book', green:'i-leaf' };
+
+// ============================================================
+// FEATURE ROADMAPS
+// ============================================================
+const featureBanks = {
+  health: [
+    { text: 'User authentication & profiles', priority: 0 },
+    { text: 'Book doctor appointments', priority: 1 },
+    { text: 'Video consultation with doctors', priority: 2 },
+    { text: 'AI symptom checker', priority: 3 },
+    { text: 'Integration with hospital EMR', priority: 4 },
+    { text: 'Prescription digitization', priority: 5 },
+    { text: 'Health wearable sync', priority: 6 },
+  ],
+  fintech: [
+    { text: 'User KYC & identity verification', priority: 0 },
+    { text: 'Bank account linking', priority: 1 },
+    { text: 'Peer-to-peer transfers', priority: 2 },
+    { text: 'Bill payments & recharges', priority: 3 },
+    { text: 'Investment portfolio tracking', priority: 4 },
+    { text: 'UPI QR code payments', priority: 5 },
+    { text: 'Crypto wallet integration', priority: 6 },
+  ],
+  edtech: [
+    { text: 'Student registration & login', priority: 0 },
+    { text: 'Course catalog & enrollment', priority: 1 },
+    { text: 'Video lesson streaming', priority: 2 },
+    { text: 'Quiz & assignment system', priority: 3 },
+    { text: 'Progress tracking dashboard', priority: 4 },
+    { text: 'Live doubt-solving sessions', priority: 5 },
+    { text: 'AI-powered study planner', priority: 6 },
+  ],
+  green: [
+    { text: 'Carbon footprint calculator', priority: 0 },
+    { text: 'Daily eco-habit tracker', priority: 1 },
+    { text: 'Recycling center locator', priority: 2 },
+    { text: 'Sustainable product marketplace', priority: 3 },
+    { text: 'Community challenges & rewards', priority: 4 },
+    { text: 'IoT smart home energy monitor', priority: 5 },
+    { text: 'Carbon credit trading', priority: 6 },
+  ],
+};
+
+const featureHints = {
+  health: 'Auth is foundation. Booking + video consult are the core loop. Skip nice-to-haves like wearable sync or EMR integration for MVP.',
+  fintech: 'KYC is legally required first. Then linking accounts and moving money (P2P transfers or UPI). Skip crypto and portfolio tracking for v1.',
+  edtech: 'Student login is foundation. Course catalog and video lessons deliver the actual product. Skip planners and AI tutors for MVP.',
+  green: 'Calculator lets people measure. Habit tracker keeps them engaged. Recycling locator is a clear utility. Skip marketplace, IoT, and trading.',
+};
+
+// ============================================================
+// WIRE PUZZLES
+// ============================================================
+const wirePuzzles = [
+  {
+    slots: ['Import dependencies','Define the route handler','Validate request body','Query the database','Format the response','Return JSON with status'],
+    blocks: [
+      { text: 'const express = require("express")', order: 0 },
+      { text: 'app.post("/api/users", async (req, res) => {', order: 1 },
+      { text: 'if (!req.body.email) return res.status(400).json({error: "Missing email"})', order: 2 },
+      { text: 'const user = await db.users.create(req.body)', order: 3 },
+      { text: 'const response = { id: user.id, email: user.email }', order: 4 },
+      { text: 'res.status(201).json(response)', order: 5 },
+    ],
+    hint: 'Classic Express POST flow: import lib → open route → validate input → hit DB → shape response → send it back.'
+  },
+  {
+    slots: ['Import fetch library','Define async function','Try the API call','Check response is ok','Parse the JSON body','Handle any errors'],
+    blocks: [
+      { text: 'import axios from "axios"', order: 0 },
+      { text: 'async function fetchWeather(city) {', order: 1 },
+      { text: 'try { const res = await axios.get(`/weather?q=${city}`)', order: 2 },
+      { text: 'if (res.status !== 200) throw new Error("API failed")', order: 3 },
+      { text: 'return res.data.temperature }', order: 4 },
+      { text: 'catch (err) { console.error(err); return null }', order: 5 },
+    ],
+    hint: 'Standard try/catch fetch: import → declare function → attempt call → check status → parse data → catch failures.'
+  },
+  {
+    slots: ['Import the model','Define the function','Load and split dataset','Train the model','Evaluate on test set','Save the trained model'],
+    blocks: [
+      { text: 'from sklearn.ensemble import RandomForestClassifier', order: 0 },
+      { text: 'def train_model(data_path):', order: 1 },
+      { text: '    X_train, X_test, y_train, y_test = load_and_split(data_path)', order: 2 },
+      { text: '    model = RandomForestClassifier().fit(X_train, y_train)', order: 3 },
+      { text: '    accuracy = model.score(X_test, y_test)', order: 4 },
+      { text: '    joblib.dump(model, "model.pkl")', order: 5 },
+    ],
+    hint: 'ML workflow: import estimator → wrap in function → prep data → fit → score → persist.'
+  },
+  {
+    slots: ['Import React hooks','Define the component','Set up state','Fetch data on mount','Render loading state','Render the data'],
+    blocks: [
+      { text: 'import { useState, useEffect } from "react"', order: 0 },
+      { text: 'function UserList() {', order: 1 },
+      { text: '  const [users, setUsers] = useState([])', order: 2 },
+      { text: '  useEffect(() => { fetch("/api/users").then(r => r.json()).then(setUsers) }, [])', order: 3 },
+      { text: '  if (!users.length) return <div>Loading...</div>', order: 4 },
+      { text: '  return <ul>{users.map(u => <li key={u.id}>{u.name}</li>)}</ul>', order: 5 },
+    ],
+    hint: 'React component pattern: imports → declaration → state → side effect → loading guard → render.'
+  },
+  {
+    slots: ['Open the CSV file','Skip the header row','Iterate through rows','Filter for valid data','Aggregate the totals','Write the summary'],
+    blocks: [
+      { text: 'with open("sales.csv") as f:', order: 0 },
+      { text: '    reader = csv.reader(f); next(reader)', order: 1 },
+      { text: '    for row in reader:', order: 2 },
+      { text: '        if row[2] and float(row[2]) > 0:', order: 3 },
+      { text: '            totals[row[0]] = totals.get(row[0], 0) + float(row[2])', order: 4 },
+      { text: '    json.dump(totals, open("summary.json", "w"))', order: 5 },
+    ],
+    hint: 'CSV ETL: open → skip headers → loop rows → filter bad ones → sum by key → write output.'
+  },
+  {
+    slots: ['Connect to Redis','Define caching function','Check for cached value','Fetch from database','Store in cache with TTL','Return the data'],
+    blocks: [
+      { text: 'const redis = new Redis(process.env.REDIS_URL)', order: 0 },
+      { text: 'async function getUser(id) {', order: 1 },
+      { text: '  const cached = await redis.get(`user:${id}`)', order: 2 },
+      { text: '  const user = cached ? JSON.parse(cached) : await db.users.findById(id)', order: 3 },
+      { text: '  if (!cached) await redis.setex(`user:${id}`, 3600, JSON.stringify(user))', order: 4 },
+      { text: '  return user', order: 5 },
+    ],
+    hint: 'Cache-aside pattern: connect client → wrap function → check cache first → fall back to DB → populate cache → return.'
+  },
+  {
+    slots: ['Import WebSocket','Create the connection','Handle open event','Handle incoming messages','Handle reconnection','Handle errors gracefully'],
+    blocks: [
+      { text: 'import { WebSocket } from "ws"', order: 0 },
+      { text: 'const ws = new WebSocket("wss://api.example.com/live")', order: 1 },
+      { text: 'ws.on("open", () => console.log("Connected"))', order: 2 },
+      { text: 'ws.on("message", (data) => handleMessage(JSON.parse(data)))', order: 3 },
+      { text: 'ws.on("close", () => setTimeout(reconnect, 5000))', order: 4 },
+      { text: 'ws.on("error", (err) => console.error("WS error:", err))', order: 5 },
+    ],
+    hint: 'WebSocket lifecycle: import → open connection → handle open → handle messages → reconnect on close → catch errors.'
+  },
+];
+
+// ============================================================
+// DEBUG PUZZLES (per-puzzle hints already exist)
+// ============================================================
+const debugPuzzles = [
+  { lang:'JavaScript', file:'stats.js', scenario:'Server crashes when this function is called with an empty array.',
+    lines: ['function average(numbers) {','  let sum = 0;','  for (let i = 0; i < numbers.length; i++) {','    sum += numbers[i];','  }','  return sum / numbers.length;','}'],
+    bugIndex: 5, fix: 'return numbers.length ? sum / numbers.length : 0;',
+    hint: 'Divide by zero. If numbers is empty, length is 0 — guard against that before dividing.'
+  },
+  { lang:'JavaScript', file:'users.js', scenario:'The function should find users by ID, but every call returns the wrong record.',
+    lines: ['function getUser(id) {','  const users = fetchUsers();','  return users.find(u => u.id = id);','}'],
+    bugIndex: 2, fix: 'return users.find(u => u.id === id);',
+    hint: 'Look at the comparison inside .find(). A single = assigns; you need to compare.'
+  },
+  { lang:'Python', file:'notify.py', scenario:'Emails are being sent — but every one arrives blank.',
+    lines: ['def send_email(user, message):','    msg = MimeText("")','    msg["To"] = user.email','    msg["Subject"] = "Update"','    server.send(msg)'],
+    bugIndex: 1, fix: 'msg = MimeText(message)',
+    hint: 'MimeText is being initialized with an empty string. The message parameter is never attached.'
+  },
+  { lang:'JavaScript', file:'loader.js', scenario:'API returns 200 OK, but the data is always undefined downstream.',
+    lines: ['async function loadData() {','  const res = await fetch("/api/data");','  const data = res.json();','  return data;','}'],
+    bugIndex: 2, fix: 'const data = await res.json();',
+    hint: 'res.json() returns a Promise. You have to await it.'
+  },
+  { lang:'Python', file:'bank.py', scenario:'Users can withdraw more money than they actually have. Support tickets are piling up.',
+    lines: ['def withdraw(account, amount):','    account.balance -= amount','    log_transaction(account, amount)','    return account.balance'],
+    bugIndex: 1, fix: 'if amount > account.balance: raise InsufficientFunds()',
+    hint: 'There is no check for whether the account has enough money. Withdraws should fail if the balance is too low.'
+  },
+  { lang:'JavaScript', file:'db.js', scenario:'A junior committed this before going on holiday. Security team is furious.',
+    lines: ['const config = {','  host: "prod-db.company.com",','  user: "admin",','  password: "hunter2",','  database: "users"','};','module.exports = config;'],
+    bugIndex: 3, fix: 'password: process.env.DB_PASSWORD,',
+    hint: 'Credentials are hardcoded and about to be pushed to a public repo. Move it to an env variable.'
+  },
+  { lang:'JavaScript', file:'search.js', scenario:'Binary search works most of the time — but crashes on some inputs with "index out of range".',
+    lines: ['function binarySearch(arr, target) {','  let lo = 0, hi = arr.length;','  while (lo <= hi) {','    const mid = (lo + hi) >> 1;','    if (arr[mid] === target) return mid;','    if (arr[mid] < target) lo = mid + 1;','    else hi = mid - 1;','  }','  return -1;','}'],
+    bugIndex: 1, fix: 'let lo = 0, hi = arr.length - 1;',
+    hint: 'Off-by-one. hi should be the last valid index, not the length. Otherwise you can read past the array.'
+  },
+  { lang:'JavaScript', file:'equals.js', scenario:'Comparing values should be safe — but the function reports "1" and 1 as equal, which broke a payment flow.',
+    lines: ['function isEqual(a, b) {','  if (a == null && b == null) return true;','  if (a == null || b == null) return false;','  return a == b;','}'],
+    bugIndex: 3, fix: 'return a === b;',
+    hint: 'Loose == does type coercion. Use === for a real comparison.'
+  },
+  { lang:'Python', file:'helpers.py', scenario:'This function should add an item to a fresh list each call. Instead it keeps growing between calls.',
+    lines: ['def add_item(item, items=[]):','    items.append(item)','    return items'],
+    bugIndex: 0, fix: 'def add_item(item, items=None):',
+    hint: 'Mutable default arguments in Python are shared across calls. Use None as the default and initialize inside.'
+  },
+  { lang:'React', file:'Timer.jsx', scenario:'The component mounts fine but the app becomes sluggish after navigating away.',
+    lines: ['function Timer() {','  const [count, setCount] = useState(0);','  useEffect(() => {','    setInterval(() => setCount(c => c + 1), 1000);','  }, []);','  return <div>{count}</div>;','}'],
+    bugIndex: 3, fix: 'const id = setInterval(...); return () => clearInterval(id);',
+    hint: 'The interval keeps running after unmount. useEffect needs a cleanup that clears it.'
+  },
+  { lang:'JavaScript', file:'walk.js', scenario:'This traversal was tested on a small tree — running it on production data froze the tab.',
+    lines: ['function walkTree(node) {','  console.log(node.value);','  for (const child of node.children) {','    walkTree(child);','  }','}'],
+    bugIndex: 0, fix: 'if (!node) return; then walk',
+    hint: 'Recursion needs a base case. If the tree has a circular reference or a null child, this never returns.'
+  },
+  { lang:'Python', file:'api.py', scenario:'A user just typed something odd in a search box and the whole users table disappeared.',
+    lines: ['def get_user(username):','    query = "SELECT * FROM users WHERE name = \'" + username + "\'"','    return db.execute(query).fetchone()'],
+    bugIndex: 1, fix: 'db.execute("SELECT * FROM users WHERE name = ?", (username,))',
+    hint: 'String concatenation into SQL is classic injection. Use a parameterized query.'
+  },
+  { lang:'JavaScript', file:'counter.js', scenario:'Three parallel increments — the counter should end at 3. It usually ends at 1.',
+    lines: ['let counter = 0;','async function increment() {','  const current = counter;','  await sleep(10);','  counter = current + 1;','}','await Promise.all([increment(), increment(), increment()]);'],
+    bugIndex: 2, fix: 'counter++; (single atomic step, no await between read and write)',
+    hint: 'Read-then-write across an await is a race condition. All three reads see 0.'
+  },
+  { lang:'JavaScript', file:'checkout.js', scenario:'Two items at 0.10 and 0.20 come to 0.30 — but with a third at 0.30, checkout says 0.60 instead of 0.60.',
+    lines: ['function total(items) {','  let sum = 0;','  for (const item of items) sum += item.price;','  return sum.toFixed(2);','}','// [0.1, 0.2] -> "0.30" OK','// [0.1, 0.2, 0.3] -> "0.60"? WRONG'],
+    bugIndex: 2, fix: 'Store money as integer cents, sum, then divide by 100 at the end.',
+    hint: 'Floating point + money = pain. 0.1 + 0.2 + 0.3 is not 0.6 exactly. Use integer cents.'
+  },
+  { lang:'Python', file:'files.py', scenario:'The app runs fine for hours then crashes with "too many open files".',
+    lines: ['def read_config(path):','    f = open(path)','    data = json.load(f)','    return data'],
+    bugIndex: 1, fix: 'with open(path) as f: return json.load(f)',
+    hint: 'The file handle is never closed. Use a context manager (with) so it closes automatically.'
+  },
+];
+
+// ============================================================
+// GIT PUZZLES (with hints added)
+// ============================================================
+const gitPuzzles = [
+  {
+    scenario: 'A junior dev accidentally pushed passwords straight to main. Nobody has pulled yet — you have about 30 seconds to fix this before the CI runs.',
+    slots: ['Checkout the main branch','Reset to previous commit','Force push to remote','Rotate the leaked passwords','Notify the team','Add commit hook to prevent this'],
+    blocks: [
+      { text: 'git checkout main', order: 0 },
+      { text: 'git reset --hard HEAD~1', order: 1 },
+      { text: 'git push --force origin main', order: 2 },
+      { text: 'Rotate all leaked credentials immediately', order: 3 },
+      { text: 'Post in #incidents Slack channel', order: 4 },
+      { text: 'echo "secrets:" >> .git/hooks/pre-commit', order: 5 },
+    ],
+    hint: 'Move to main, undo the commit, force-push before anyone pulls, then rotate the leaked secrets since they are already public.'
+  },
+  {
+    scenario: 'You merged a broken feature into main right before demo. The merge commit itself is fine, but the code is bad. You need to undo it without losing anyone else\'s work.',
+    slots: ['Checkout main branch','Identify the bad merge commit','Revert the merge commit','Push the revert','Fix the feature in a branch','Open a new PR'],
+    blocks: [
+      { text: 'git checkout main', order: 0 },
+      { text: 'git log --oneline -5', order: 1 },
+      { text: 'git revert -m 1 <merge-commit-sha>', order: 2 },
+      { text: 'git push origin main', order: 3 },
+      { text: 'git checkout -b fix/feature-issue', order: 4 },
+      { text: 'gh pr create --title "Fix broken feature"', order: 5 },
+    ],
+    hint: 'Revert (not reset) preserves the history. Use -m 1 to tell git which parent to keep, then push and re-do the work on a branch.'
+  },
+  {
+    scenario: 'Your teammate rebased their branch and force-pushed while you were working on the same branch. Your local changes are stuck.',
+    slots: ['Stash your local changes','Fetch the latest remote','Reset your branch to remote','Reapply your stash','Resolve any conflicts','Push clean history'],
+    blocks: [
+      { text: 'git stash save "wip"', order: 0 },
+      { text: 'git fetch origin', order: 1 },
+      { text: 'git reset --hard origin/feature-branch', order: 2 },
+      { text: 'git stash pop', order: 3 },
+      { text: 'Resolve conflicts in the affected files', order: 4 },
+      { text: 'git push origin feature-branch', order: 5 },
+    ],
+    hint: 'Stash first so your work is safe, sync with the new remote history, then bring your work back on top.'
+  },
+  {
+    scenario: 'You need to backport a single bugfix from main to a release branch — without pulling in all the other changes from main.',
+    slots: ['Find the fix commit hash','Checkout the release branch','Cherry-pick the commit','Resolve merge conflicts','Test the fix','Push to release branch'],
+    blocks: [
+      { text: 'git log --oneline main | grep "fix:"', order: 0 },
+      { text: 'git checkout release/v2.1', order: 1 },
+      { text: 'git cherry-pick <commit-sha>', order: 2 },
+      { text: 'Manually resolve any conflicts and git add', order: 3 },
+      { text: 'npm test && npm run e2e', order: 4 },
+      { text: 'git push origin release/v2.1', order: 5 },
+    ],
+    hint: 'Cherry-pick copies a single commit onto your current branch. Find the SHA, switch to the target branch, apply it, test, push.'
+  },
+  {
+    scenario: 'Your PR has 12 messy "wip" and "fix typo" commits. Reviewer asked you to clean up the history before merge.',
+    slots: ['Fetch latest main','Start interactive rebase','Squash commits into one','Write a clean commit message','Force push to your branch','Request re-review'],
+    blocks: [
+      { text: 'git fetch origin main', order: 0 },
+      { text: 'git rebase -i origin/main', order: 1 },
+      { text: 'Change "pick" to "squash" for all but first commit', order: 2 },
+      { text: 'Write: "feat: add user profile page"', order: 3 },
+      { text: 'git push --force-with-lease origin feature', order: 4 },
+      { text: 'gh pr comment --body "Cleaned up, ready for review"', order: 5 },
+    ],
+    hint: 'Interactive rebase lets you squash the wip commits into one, write a proper message, then force-push (with lease so you do not clobber others).'
+  },
+  {
+    scenario: 'A regression appeared somewhere in the last 200 commits. Nobody knows which one broke it. You need to find the exact commit.',
+    slots: ['Start git bisect','Mark current commit as bad','Mark a known-good commit','Test each commit git checks out','Mark good or bad accordingly','Reset when the culprit is found'],
+    blocks: [
+      { text: 'git bisect start', order: 0 },
+      { text: 'git bisect bad HEAD', order: 1 },
+      { text: 'git bisect good v2.0.0', order: 2 },
+      { text: 'Run the failing test on the checked-out commit', order: 3 },
+      { text: 'git bisect good OR git bisect bad', order: 4 },
+      { text: 'git bisect reset', order: 5 },
+    ],
+    hint: 'Bisect does binary search across your history. Tell it a good and bad commit, test each candidate it picks, mark good/bad, until it identifies the culprit.'
+  },
+  {
+    scenario: 'You accidentally committed a .env file with API keys three months ago. It is still in the git history even though you deleted it. Auditors are asking.',
+    slots: ['Backup the repo first','Use filter-branch or filter-repo','Remove .env from all history','Force push to remote','Ask team to re-clone','Rotate the leaked keys'],
+    blocks: [
+      { text: 'cp -r project project-backup', order: 0 },
+      { text: 'pip install git-filter-repo', order: 1 },
+      { text: 'git filter-repo --path .env --invert-paths', order: 2 },
+      { text: 'git push --force --all origin', order: 3 },
+      { text: 'Slack: "Please delete and re-clone the repo"', order: 4 },
+      { text: 'Rotate every key that was in that file', order: 5 },
+    ],
+    hint: 'filter-repo (or filter-branch) rewrites history to remove the file everywhere. Back up first, run it, force-push, tell the team, and rotate the keys since they are already public.'
+  },
+];
+
+// ============================================================
+// ALGO / RAPID ROUND (18 questions)
+// ============================================================
+const algoQuestions = [
+  // ==================== LOGIC PUZZLES (make you think) ====================
+  { tag:'logic', prompt:'You have two ropes that each burn for exactly 60 minutes, but unevenly. Using only matches, how do you measure exactly 45 minutes?',
+    options:['Light one rope, wait 45 min','Light both ends of rope A and one end of rope B simultaneously','Cut each rope in half','It\'s impossible without a clock'], correct:1,
+    explain:'Rope A (both ends) burns in 30 min. Right when it dies, light the other end of B (30 min into its 60). B now takes 15 more min. 30+15=45.',
+    hint:'Both ends of a rope burn twice as fast. Start there.' },
+
+  { tag:'logic', prompt:'You have 8 identical-looking coins. One is fake and slightly lighter. With a balance scale, what\'s the minimum weighings guaranteed to find it?',
+    options:['1','2','3','4'], correct:1,
+    explain:'Split into 3-3-2. Weigh the 3s: if balanced, weigh the 2 remaining (1 more). If unbalanced, take the lighter 3 and weigh 1 vs 1. Either way, 2 weighings.',
+    hint:'Don\'t split in half — split in three groups.' },
+
+  { tag:'logic', prompt:'A tree with N nodes has how many edges?',
+    options:['N','N-1','N+1','2N'], correct:1,
+    explain:'Every node except the root has exactly one parent edge — so N-1 edges total.',
+    hint:'Every node has one parent edge, except one node has none.' },
+
+  { tag:'logic', prompt:'In a binary tree with 15 nodes, what\'s the minimum possible depth?',
+    options:['3','4','7','15'], correct:0,
+    explain:'A perfect binary tree of depth 3 holds 2⁴-1 = 15 nodes exactly. So depth 3 (root is depth 0).',
+    hint:'2^(d+1) - 1 gives the max nodes at depth d. Solve for 15.' },
+
+  // ==================== CS FOLKLORE / TRIVIA ====================
+  { tag:'riddle', prompt:'The word "bug" for a software defect became famous when a moth was found stuck in what?',
+    options:['A vacuum tube','A relay of the Harvard Mark II','A punch card reader','A magnetic drum'], correct:1,
+    explain:'Grace Hopper\'s team taped the actual moth into their logbook in 1947. The term predates it, but this incident cemented it.',
+    hint:'Grace Hopper\'s team. 1947. Electromechanical machine.' },
+
+  { tag:'riddle', prompt:'The Unix command "grep" gets its name from what?',
+    options:['General Regular Expression Parser','g/re/p from the ed editor','Greenberg\'s Roving Expression Program','Global Regex Print'], correct:1,
+    explain:'In the ed editor, g/re/p meant "globally search for regex, then print". The name stuck.',
+    hint:'It comes from a command in an even older Unix editor.' },
+
+  { tag:'riddle', prompt:'A "heisenbug" is a bug that…',
+    options:['Only appears in production','Disappears when you try to observe or debug it','Involves quantum computing','Requires two threads to reproduce'], correct:1,
+    explain:'Named after Heisenberg\'s uncertainty principle — the act of debugging (adding logs, running in debugger) changes timing enough that the bug vanishes.',
+    hint:'Named after a physicist. The name is a pun on "observer effect".' },
+
+  { tag:'riddle', prompt:'MongoDB is named after which word?',
+    options:['Mongoose','Humongous','Mongolian','Monolith'], correct:1,
+    explain:'Short for "humongous" — the founders wanted to emphasize handling huge amounts of data.',
+    hint:'It\'s a shortening of a word meaning "huge".' },
+
+  { tag:'riddle', prompt:'Why do we say a computer "boots"?',
+    options:['Because you kick it to start','Short for "bootstrapping" — pulling itself up by its bootstraps','Named after Boot Bell Labs','The first Unix machine had boot-shaped feet'], correct:1,
+    explain:'The initial small program that loads the OS "pulls itself up by its own bootstraps" — the metaphor got shortened.',
+    hint:'Think of the idiom "pull yourself up by your…".' },
+
+  // ==================== LANGUAGE QUIRKS ====================
+  { tag:'output', prompt:'In Python, <code>1 is 1</code> returns True. What does <code>1000 is 1000</code> return in an interactive shell?',
+    options:['True — same value','False — different objects','Depends on Python version','Raises an error'], correct:2,
+    explain:'CPython caches small integers (-5 to 256), so "1 is 1" hits the cache. 1000 is outside that range in most contexts — but it\'s implementation-dependent, and the answer can be True or False depending on the version and how it\'s run.',
+    hint:'Python caches "small" integers but not big ones. And even that behavior isn\'t guaranteed by the spec.' },
+
+  { tag:'output', prompt:'In JavaScript, what does <code>NaN === NaN</code> return?',
+    options:['true','false','undefined','NaN'], correct:1,
+    explain:'NaN is the only value not equal to itself. That\'s actually how isNaN was originally implemented: x !== x.',
+    hint:'NaN is the one value that isn\'t equal to itself. It\'s a feature, not a bug.' },
+
+  { tag:'output', prompt:'What is <code>typeof NaN</code> in JavaScript?',
+    options:['"NaN"','"number"','"undefined"','"error"'], correct:1,
+    explain:'NaN literally means "Not a Number", but its type is number. The IEEE 754 spec defines it as a number.',
+    hint:'Read the spec, not the name. It\'s defined by IEEE 754 for a reason.' },
+
+  { tag:'output', prompt:'In Python: <code>[] == False</code> gives False, but <code>bool([])</code> gives False. Why?',
+    options:['Bug in Python','== checks type-and-value equality, bool() checks truthiness','[] has a special __eq__','Python 2 vs 3 difference'], correct:1,
+    explain:'Truthy/falsy is a separate concept from equality. Empty list is falsy but not equal to False.',
+    hint:'"Falsy" and "equal to False" are two different questions.' },
+
+  { tag:'output', prompt:'JavaScript: <code>[1,2,3] + [4,5,6]</code> returns what?',
+    options:['[1,2,3,4,5,6]','"1,2,34,5,6"','[5,7,9]','TypeError'], correct:1,
+    explain:'The + operator coerces both arrays to strings. "1,2,3" + "4,5,6" = "1,2,34,5,6". Wild but consistent.',
+    hint:'The + operator doesn\'t know what to do with arrays, so it falls back to string coercion.' },
+
+  { tag:'output', prompt:'In Python: <code>a = [[]] * 3; a[0].append(1); print(a)</code>',
+    options:['[[1], [], []]','[[1], [1], [1]]','[[1, 1, 1]]','[1, 1, 1]'], correct:1,
+    explain:'* 3 creates three references to the same inner list. Modifying one modifies all. Classic Python gotcha.',
+    hint:'Multiplying a list of lists doesn\'t copy the inner lists — it copies references.' },
+
+  { tag:'output', prompt:'JavaScript: what does <code>0.1 + 0.2 === 0.3</code> evaluate to?',
+    options:['true','false','TypeError','NaN'], correct:1,
+    explain:'Floats can\'t represent 0.1 or 0.2 exactly. The sum is 0.30000000000000004 — not equal to 0.3.',
+    hint:'Same reason every language has a floating-point pain post on Stack Overflow.' },
+
+  // ==================== NUMBER / BINARY THINKING ====================
+  { tag:'bitwise', prompt:'In 8-bit two\'s complement, what is <code>-1</code> in binary?',
+    options:['10000001','11111111','00000001','10000000'], correct:1,
+    explain:'Two\'s complement stores negatives as: flip bits of the positive, add 1. For 1: 00000001 → 11111110 + 1 = 11111111.',
+    hint:'It\'s the reason x & 0xFF wraps a signed byte, and why -1 is "all bits set" in most languages.' },
+
+  { tag:'bitwise', prompt:'What is the largest positive integer a signed 32-bit int can hold?',
+    options:['2^32','2^31 - 1','2^31','2^32 - 1'], correct:1,
+    explain:'One bit is used for the sign, leaving 31 bits for magnitude. Max is 2^31 - 1 = 2,147,483,647.',
+    hint:'One bit is the sign, the rest represent the value.' },
+
+  { tag:'bitwise', prompt:'Why do programmers casually say "2^10 is about 1000"?',
+    options:['It\'s a coincidence','2^10 = 1024, close enough to 10^3 for rough math','It\'s not, they\'re wrong','Only true in binary systems'], correct:1,
+    explain:'2^10 = 1024 ≈ 10^3. So 2^20 ≈ 10^6, 2^30 ≈ 10^9. This is why RAM sizes and 1KB=1024 bytes exist.',
+    hint:'2^10 = 1024. Round it.' },
+
+  { tag:'bitwise', prompt:'What clever property does XOR have that makes it useful for finding the unique element in an array where every other element appears twice?',
+    options:['a XOR a = 0, and a XOR 0 = a','XOR is commutative','XOR is faster than +','XOR wraps around at 32 bits'], correct:0,
+    explain:'XOR everything together. Pairs cancel out to 0. The unique element remains.',
+    hint:'Two of the same thing XOR\'d together give what?' },
+
+  // ==================== HTTP / NETWORKING ====================
+  { tag:'http', prompt:'HTTP GET is called "idempotent". What does that mean?',
+    options:['It\'s fast','Multiple identical calls have the same effect as one','It can\'t be cached','It requires authentication'], correct:1,
+    explain:'GET twice = GET once (in terms of server state). Same for PUT and DELETE. POST is NOT idempotent.',
+    hint:'Do it once, do it a hundred times — the server should be in the same state after.' },
+
+  { tag:'http', prompt:'TCP is like a phone call. UDP is like…',
+    options:['A group chat','A postcard — fire and forget','A letter with tracking','A meeting invite'], correct:1,
+    explain:'TCP: connection, acknowledgments, guaranteed delivery. UDP: send it and hope it arrives. Video calls and games use UDP because "late packet" is worse than "missing packet".',
+    hint:'No connection, no delivery guarantee, no confirmation. Just send.' },
+
+  { tag:'http', prompt:'What does status code 418 mean?',
+    options:['Not Found','I\'m a Teapot','Unauthorized','Rate Limited'], correct:1,
+    explain:'From RFC 2324 — an April Fool\'s "Hyper Text Coffee Pot Control Protocol". Real teapots refuse to brew coffee. Some frameworks still ship it as a joke.',
+    hint:'April Fools RFC. Involves brewing something.' },
+
+  { tag:'http', prompt:'Little-endian vs big-endian describes what?',
+    options:['CPU clock speed','The order bytes are stored in memory','Which side of the network sends first','Instruction set architecture'], correct:1,
+    explain:'0x12345678 in little-endian: 78 56 34 12. Big-endian: 12 34 56 78. Intel is little, network byte order is big.',
+    hint:'Byte order. Which byte comes first: the least significant or the most significant?' },
+
+  // ==================== ALGORITHMS ====================
+  { tag:'algo', prompt:'A linked list may have a cycle. How do you detect one using O(1) extra space?',
+    options:['Store visited nodes in a hash set','Two pointers: slow (1 step) and fast (2 steps)','Reverse the list','You can\'t — need O(n) space'], correct:1,
+    explain:'Floyd\'s tortoise and hare. If there\'s a cycle, fast will lap slow eventually. If not, fast hits null.',
+    hint:'Two pointers moving at different speeds. If they meet, you\'ve got a loop.' },
+
+  { tag:'algo', prompt:'You have an almost-sorted array (a few elements out of place). Which sort will typically be fastest in practice?',
+    options:['Quicksort','Merge sort','Insertion sort','Heap sort'], correct:2,
+    explain:'Insertion sort is O(n) on nearly-sorted data because each element only moves a few positions. That\'s why Timsort (Python\'s sort) uses insertion sort for small runs.',
+    hint:'Which sort finishes fast when the array is already almost done?' },
+
+  { tag:'algo', prompt:'What does "amortized O(1)" mean, for something like Python\'s list.append()?',
+    options:['Always O(1)','Usually O(1), occasionally O(n), but averages O(1) over many calls','O(1) only in Python 3','O(1) for lists under 1000 items'], correct:1,
+    explain:'When the internal array runs out, Python doubles it — that\'s O(n) — but you get n free O(1) appends before the next resize. Averaged: O(1).',
+    hint:'"Usually cheap, occasionally expensive, cheap on average."' },
+
+  { tag:'complexity', prompt:'You have an algorithm that\'s O(n log n) and one that\'s O(n²). For what input size do they roughly cross?',
+    options:['n ≈ 10','n ≈ 100','n ≈ 1000','n ≈ 1'], correct:0,
+    explain:'n log n vs n² — dividing gives log n vs n. They cross when n ≈ log n × constant, roughly n ≈ 10-20 for typical constants. Below that, O(n²) can actually win due to lower overhead.',
+    hint:'Small n. That\'s why insertion sort beats quicksort for tiny arrays.' },
+
+  { tag:'complexity', prompt:'Which grows faster as n gets large: <code>n log n</code> or <code>n^1.01</code>?',
+    options:['n log n','n^1.01','They\'re the same','Depends on the base'], correct:1,
+    explain:'Any polynomial n^(1+ε) eventually dominates n log n, no matter how small ε is. log n grows slower than any positive power of n.',
+    hint:'Any polynomial power above 1 eventually crushes log n.' },
+
+  // ==================== DATA STRUCTURES ====================
+  { tag:'ds', prompt:'You need to check membership in a huge, static set of strings very fast. Best data structure?',
+    options:['Array','Hash set','Linked list','Binary search tree'], correct:1,
+    explain:'Hash set gives O(1) average lookup. BST would be O(log n). Bloom filter is even better for space if false positives are OK.',
+    hint:'You want O(1) lookup. Which structure gives that?' },
+
+  { tag:'ds', prompt:'A queue where the highest-priority item comes out first is called…',
+    options:['Priority queue (usually a heap)','Sorted list','Deque','Stack'], correct:0,
+    explain:'Priority queues are usually backed by binary heaps for O(log n) push and pop. Used in Dijkstra\'s, A*, and event schedulers.',
+    hint:'Heap. Log n insert and extract-min.' },
+
+  { tag:'ds', prompt:'B+ trees are used in databases because…',
+    options:['They\'re balanced','Leaf nodes are linked, so range scans are fast','They\'re easy to code','They compress well'], correct:1,
+    explain:'Range queries ("all users between id 100-200") walk the linked leaves instead of doing many tree traversals. Massive win for SQL.',
+    hint:'Range queries. Why walking the tree over and over would be slow.' },
+
+  // ==================== CONCURRENCY / SYSTEMS ====================
+  { tag:'sys', prompt:'What\'s the main difference between a process and a thread?',
+    options:['Processes are faster','Threads share memory; processes don\'t','Threads use more RAM','Processes can\'t communicate'], correct:1,
+    explain:'Threads within a process share the same address space — cheap to switch, easy to break with race conditions. Processes are isolated.',
+    hint:'Memory. Who shares it?' },
+
+  { tag:'sys', prompt:'A function works fine in tests but breaks during high traffic. Most likely cause?',
+    options:['Compiler bug','Race condition','Wrong indentation','Missing semicolon'], correct:1,
+    explain:'Concurrency issues — race conditions, deadlocks, shared state — only surface under load. That\'s why they\'re the worst class of bug.',
+    hint:'Something about multiple things happening at once.' },
+
+  { tag:'sys', prompt:'The "C" in ACID (database transactions) stands for?',
+    options:['Concurrent','Consistency','Cached','Complete'], correct:1,
+    explain:'Atomicity, Consistency, Isolation, Durability. Consistency = the DB moves from one valid state to another.',
+    hint:'A-C-I-D. Second one.' },
+
+  // ==================== TERMINAL / CS BASICS ====================
+  { tag:'terminal', prompt:'You run <code>chmod 644 file.txt</code>. Who can do what?',
+    options:['Owner: rw, group: r, others: r','Owner: rwx, others: none','Owner: r, group: rw, others: x','Everyone: rw'], correct:0,
+    explain:'6 = rw-, 4 = r--, 4 = r--. Owner reads/writes, everyone else reads only.',
+    hint:'Each digit = permissions bits. 4=read, 2=write, 1=execute. Sum them.' },
+
+  { tag:'terminal', prompt:'In vim, you\'re stuck and can\'t exit. Which command actually exits without saving?',
+    options:['exit','quit','Ctrl+C','<Esc> :q!'], correct:3,
+    explain:'Press Escape (to leave insert mode), then :q! (quit, force, discard changes). If you want to save, :wq. The "stuck in vim" meme is real.',
+    hint:'You need to leave insert mode first, then run a command starting with colon.' },
+
+  { tag:'terminal', prompt:'A UTF-8 encoded emoji like 🎉 typically uses how many bytes?',
+    options:['1','2','4','8'], correct:2,
+    explain:'ASCII fits in 1 byte, most Latin/European chars in 2, most CJK in 3, and emoji in 4. UTF-8 is variable-length by design.',
+    hint:'UTF-8 uses 1 byte for ASCII, more for higher code points. Emoji are way past ASCII.' },
+
+  // ==================== FAMOUS BUGS ====================
+  { tag:'riddle', prompt:'The Y2K bug happened because early programs stored years as…',
+    options:['4-digit integers','2 digits to save memory','Roman numerals','Julian dates'], correct:1,
+    explain:'When memory cost real money, storing "97" instead of "1997" saved space. Then 1999 → 2000 rolled over to "00" and calculations broke.',
+    hint:'Memory used to be extremely expensive. What could you cut?' },
+
+  { tag:'riddle', prompt:'The Mars Climate Orbiter was lost in 1999 because…',
+    options:['A cosmic ray flipped a bit','Two teams used different unit systems (metric vs imperial)','Y2K bug','Signal loss'], correct:1,
+    explain:'One team\'s software output pound-seconds, the other expected newton-seconds. $327 million lesson in unit checking.',
+    hint:'Two teams. One used metric. The other didn\'t.' },
+
+  { tag:'riddle', prompt:'The "500 mile email" bug: emails failed if the recipient was more than 500 miles away. What was actually wrong?',
+    options:['Router hop limit','A default timeout was so short, physics of the speed of light in fiber limited how far the packet could go','Corrupt DNS','Missing SSL cert'], correct:1,
+    explain:'A famous 2002 story. An upgrade set the SMTP timeout to a tiny value — round-trip time at ~124k miles/sec in fiber capped the reachable distance at about 500 miles.',
+    hint:'Timeout was so short that the speed of light became the bottleneck.' },
+];
+
+// ============================================================
+// STATE
+// ============================================================
+let selectedDomain = null;
+let selectedFeatures = [];
+let selectedTech = [];
+let currentAlgoQuestions = [];
+let currentAlgoIndex = 0;
+let algoResults = [];
+let currentWirePuzzle = null;
+let wireStep = 0;
+let currentDebugPuzzles = [];
+let currentDebugRound = 0;
+let currentGitPuzzle = null;
+let gitStep = 0;
+let score = 0;
+let timeLeft = GAME_TIME;
+let timerInterval = null;
+let userData = {};
+let hintsUsed = { features:false, wire:false, git:false, algo:{}, debug:{} };
+
+// ============================================================
+// HELPERS
+// ============================================================
+function loadLeaderboard() {
+  return cachedLeaderboard;
+}
+function saveCacheLocal() {
+  try { localStorage.setItem(LB_KEY, JSON.stringify(cachedLeaderboard)); } catch {}
+}
+function loadCacheLocal() {
+  try { cachedLeaderboard = JSON.parse(localStorage.getItem(LB_KEY)) || []; }
+  catch { cachedLeaderboard = []; }
+}
+
+// -------- Cloud sync (Google Sheets via Apps Script Web App) --------
+// IMPORTANT: POSTs use Content-Type: text/plain. Apps Script Web Apps
+// don't handle CORS preflight (OPTIONS) requests — using text/plain
+// keeps the request "simple" so the browser sends it directly.
+async function syncFromCloud() {
+  if (!CLOUD_ENABLED) return;
+  try {
+    const res = await fetch(`${SHEETS_URL}?_=${Date.now()}`, { redirect: 'follow' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    cachedLeaderboard = Array.isArray(data.entries) ? data.entries : [];
+    saveCacheLocal();
+    cloudSyncState = 'live';
+    updateSyncBadge();
+    if (document.getElementById('screen-leaderboard').classList.contains('active')) {
+      renderLeaderboard();
+    }
+    if (document.getElementById('screen-admin').classList.contains('active')) {
+      renderAdminDashboard();
+    }
+  } catch (err) {
+    console.error('Leaderboard sync failed:', err);
+    cloudSyncState = 'error';
+    updateSyncBadge();
+  }
+}
+async function pushEntryToCloud(entry) {
+  if (!CLOUD_ENABLED) return;
+  try {
+    const res = await fetch(SHEETS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'add', entry: entry }),
+      redirect: 'follow'
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data && data.key) {
+      entry._key = data.key;
+      saveCacheLocal();
+    }
+  } catch (err) {
+    console.error('Failed to push entry to sheet:', err);
+    cloudSyncState = 'error';
+    updateSyncBadge();
+  }
+}
+async function deleteFromCloud(_key) {
+  if (!CLOUD_ENABLED || !_key) return;
+  try {
+    await fetch(SHEETS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'delete', key: _key }),
+      redirect: 'follow'
+    });
+  } catch (err) {
+    console.error('Failed to delete from sheet:', err);
+  }
+}
+async function clearAllFromCloud() {
+  if (!CLOUD_ENABLED) return;
+  try {
+    await fetch(SHEETS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'clear' }),
+      redirect: 'follow'
+    });
+  } catch (err) {
+    console.error('Failed to clear sheet:', err);
+  }
+}
+function startCloudPolling() {
+  if (cloudPollInterval) clearInterval(cloudPollInterval);
+  if (!CLOUD_ENABLED) return;
+  cloudPollInterval = setInterval(syncFromCloud, 15000);
+}
+function stopCloudPolling() {
+  if (cloudPollInterval) { clearInterval(cloudPollInterval); cloudPollInterval = null; }
+}
+function updateSyncBadge() {
+  document.querySelectorAll('.sync-badge').forEach(el => {
+    el.className = 'sync-badge state-' + cloudSyncState;
+    let label = '';
+    if (cloudSyncState === 'live') label = 'Sheets · live';
+    else if (cloudSyncState === 'connecting') label = 'Connecting…';
+    else if (cloudSyncState === 'error') label = 'Offline — retrying';
+    else label = 'Local only (no sheet configured)';
+    el.querySelector('.sync-label').textContent = label;
+  });
+}
+// Initial hydration
+loadCacheLocal();
+if (CLOUD_ENABLED) {
+  cloudSyncState = 'connecting';
+  syncFromCloud();
+}
+// Update badges once the DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', updateSyncBadge);
+} else {
+  updateSyncBadge();
+}
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function goTo(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+  if (id === 'screen-leaderboard') renderLeaderboard();
+  if (id === 'screen-admin') renderAdminDashboard();
+}
+function updateAllTimers() {
+  const timeStr = formatTime(timeLeft);
+  document.querySelectorAll('.game-time').forEach(el => {
+    el.textContent = timeStr;
+    if (timeLeft < 60) el.parentElement.classList.add('warn');
+  });
+}
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2,'0')}`;
+}
+function updateScoreDisplay() {
+  document.querySelectorAll('.game-score').forEach(el => {
+    el.textContent = score;
+    const pill = el.closest('.gh-score');
+    if (pill) {
+      pill.classList.add('pop');
+      setTimeout(() => pill.classList.remove('pop'), 200);
+    }
+  });
+}
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+function animateScore(el, from, to) {
+  const dur = 1400;
+  const start = performance.now();
+  function tick(now) {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.round(from + (to - from) * eased);
+    if (t < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ============================================================
+// HINT SYSTEM
+// ============================================================
+function showHint(puzzle, subKey) {
+  if (puzzle === 'features') {
+    hintsUsed.features = true;
+    document.getElementById('hint-text-features').textContent = featureHints[selectedDomain] || 'Pick the features closest to your MVP.';
+    document.getElementById('hint-features').classList.add('show');
+    document.getElementById('btn-hint-features').disabled = true;
+  } else if (puzzle === 'wire') {
+    hintsUsed.wire = true;
+    document.getElementById('hint-text-wire').textContent = currentWirePuzzle.hint;
+    document.getElementById('hint-wire').classList.add('show');
+    document.getElementById('btn-hint-wire').disabled = true;
+  } else if (puzzle === 'git') {
+    hintsUsed.git = true;
+    document.getElementById('hint-text-git').textContent = currentGitPuzzle.hint;
+    document.getElementById('hint-git').classList.add('show');
+    document.getElementById('btn-hint-git').disabled = true;
+  } else if (puzzle === 'algo') {
+    hintsUsed.algo[currentAlgoIndex] = true;
+    document.getElementById('hint-text-algo').textContent = currentAlgoQuestions[currentAlgoIndex].hint || 'Think through the options one by one.';
+    document.getElementById('hint-algo').classList.add('show');
+    document.getElementById('btn-hint-algo').disabled = true;
+  } else if (puzzle === 'debug') {
+    hintsUsed.debug[currentDebugRound] = true;
+    document.getElementById('hint-text-debug').textContent = currentDebugPuzzles[currentDebugRound].hint;
+    document.getElementById('hint-debug').classList.add('show');
+    document.getElementById('btn-hint-debug').disabled = true;
+  }
+}
+function resetHintUI(puzzle) {
+  if (puzzle === 'features') {
+    document.getElementById('hint-features').classList.remove('show');
+    document.getElementById('btn-hint-features').disabled = false;
+  } else if (puzzle === 'wire') {
+    document.getElementById('hint-wire').classList.remove('show');
+    document.getElementById('btn-hint-wire').disabled = false;
+  } else if (puzzle === 'git') {
+    document.getElementById('hint-git').classList.remove('show');
+    document.getElementById('btn-hint-git').disabled = false;
+  } else if (puzzle === 'algo') {
+    const hb = document.getElementById('hint-algo');
+    const btn = document.getElementById('btn-hint-algo');
+    if (hb) hb.classList.remove('show');
+    if (btn) btn.disabled = false;
+  } else if (puzzle === 'debug') {
+    document.getElementById('hint-debug').classList.remove('show');
+    document.getElementById('btn-hint-debug').disabled = false;
+  }
+}
+
+// ============================================================
+// REGISTRATION
+// ============================================================
+function validateAndStart() {
+  let valid = true;
+  document.querySelectorAll('.error-msg').forEach(el => el.classList.remove('show'));
+
+  const name = document.getElementById('reg-name').value.trim();
+  const phone = document.getElementById('reg-phone').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
+  const location = document.getElementById('reg-location').value.trim();
+  const occupation = document.getElementById('reg-occupation').value;
+  const consent = document.getElementById('reg-consent').checked;
+
+  if (!name) { document.getElementById('err-name').classList.add('show'); valid = false; }
+  if (!phone || phone.length < 7) { document.getElementById('err-phone').classList.add('show'); valid = false; }
+  if (!email || !email.includes('@')) { document.getElementById('err-email').classList.add('show'); valid = false; }
+  if (!location) { document.getElementById('err-location').classList.add('show'); valid = false; }
+  if (!occupation) { document.getElementById('err-occupation').classList.add('show'); valid = false; }
+  if (!consent) { document.getElementById('err-consent').classList.add('show'); valid = false; }
+  if (!valid) return;
+
+  userData = { name, phone, email, location, occupation };
+  startGame();
+}
+function startGame() {
+  selectedDomain = null;
+  selectedFeatures = [];
+  selectedTech = [];
+  score = 0;
+  timeLeft = GAME_TIME;
+  hintsUsed = { features:false, wire:false, git:false, algo:{}, debug:{} };
+  updateAllTimers();
+  updateScoreDisplay();
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    timeLeft--;
+    updateAllTimers();
+    if (timeLeft <= 0) { clearInterval(timerInterval); finishGame(); }
+  }, 1000);
+  goTo('screen-domain');
+}
+
+// ============================================================
+// DOMAIN
+// ============================================================
+function selectDomain(el, domain) {
+  document.querySelectorAll('#screen-domain .select-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedDomain = domain;
+  document.getElementById('btn-domain').disabled = false;
+}
+
+// ============================================================
+// FEATURES
+// ============================================================
+function initFeatures() {
+  selectedFeatures = [];
+  resetHintUI('features');
+  const list = document.getElementById('feature-list');
+  const bank = shuffle(featureBanks[selectedDomain]);
+  list.innerHTML = '';
+  bank.forEach((f, idx) => {
+    const card = document.createElement('div');
+    card.className = 'feature-card';
+    card.dataset.text = f.text;
+    card.dataset.idx = idx;
+    card.onclick = () => selectFeature(idx);
+    card.innerHTML = `<span>${escapeHtml(f.text)}</span><span class="mono" style="font-size:11px;color:var(--text-dim)">tap</span>`;
+    list.appendChild(card);
+  });
+  renderFeatureBuild();
+}
+function selectFeature(idx) {
+  const cards = document.querySelectorAll('#feature-list .feature-card');
+  const card = cards[idx];
+  if (selectedFeatures.includes(idx)) {
+    selectedFeatures = selectedFeatures.filter(i => i !== idx);
+    card.classList.remove('selected');
+  } else {
+    if (selectedFeatures.length >= 3) return;
+    selectedFeatures.push(idx);
+    card.classList.add('selected');
+  }
+  renderFeatureBuild();
+  document.getElementById('btn-features').disabled = selectedFeatures.length !== 3;
+  if (selectedFeatures.length === 3) {
+    let addedScore = 15;
+    if (hintsUsed.features) addedScore = Math.round(addedScore * 0.6);
+    score += addedScore;
+    updateScoreDisplay();
+  }
+}
+function renderFeatureBuild() {
+  const area = document.getElementById('feature-build');
+  if (selectedFeatures.length === 0) {
+    area.innerHTML = '<span class="empty">Your roadmap is empty — pick 3 features below.</span>';
+    return;
+  }
+  const cards = document.querySelectorAll('#feature-list .feature-card');
+  area.innerHTML = selectedFeatures.map(idx =>
+    `<span class="build-tag">${escapeHtml(cards[idx].dataset.text)}</span>`
+  ).join('');
+}
+
+// ============================================================
+// STACK
+// ============================================================
+const stackCategories = { frontend:null, backend:null, database:null, devops:null };
+function toggleTech(el, tech, category) {
+  const others = document.querySelectorAll('.stack-card');
+  others.forEach(c => {
+    if (c.getAttribute('onclick').includes(`'${category}'`) && c !== el) {
+      c.classList.remove('selected');
+    }
+  });
+  if (stackCategories[category] === tech) {
+    el.classList.remove('selected');
+    stackCategories[category] = null;
+    selectedTech = selectedTech.filter(t => t !== tech);
+  } else {
+    if (stackCategories[category]) {
+      selectedTech = selectedTech.filter(t => t !== stackCategories[category]);
+    }
+    el.classList.add('selected');
+    stackCategories[category] = tech;
+    if (!selectedTech.includes(tech)) selectedTech.push(tech);
+  }
+  renderStackBuild();
+  const allPicked = Object.values(stackCategories).every(v => v);
+  document.getElementById('btn-stack').disabled = !allPicked;
+}
+function renderStackBuild() {
+  const area = document.getElementById('stack-build');
+  if (selectedTech.length === 0) {
+    area.innerHTML = '<span class="empty">Nothing picked yet. Start with a frontend framework.</span>';
+    return;
+  }
+  area.innerHTML = selectedTech.map(t => `<span class="build-tag">${escapeHtml(t)}</span>`).join('');
+}
+
+
+// ============================================================
+// ALGO / RAPID ROUND
+// ============================================================
+function initAlgo() {
+  // Pick a fun mix: 1 riddle, 1 logic puzzle, 4 mixed technical
+  const riddles = algoQuestions.filter(q => q.tag === 'riddle');
+  const logic = algoQuestions.filter(q => q.tag === 'logic');
+  const others = algoQuestions.filter(q => q.tag !== 'riddle' && q.tag !== 'logic');
+  const pick = [
+    ...shuffle(riddles).slice(0, 1),
+    ...shuffle(logic).slice(0, 1),
+    ...shuffle(others).slice(0, 4)
+  ];
+  currentAlgoQuestions = shuffle(pick);
+  currentAlgoIndex = 0;
+  algoResults = [];
+  hintsUsed.algo = {};
+  renderAlgoProgress();
+  renderAlgoQuestion();
+  document.getElementById('algo-nav').style.display = 'none';
+}
+function renderAlgoProgress() {
+  const bar = document.getElementById('rapid-progress');
+  bar.innerHTML = '';
+  currentAlgoQuestions.forEach((_, i) => {
+    const dot = document.createElement('div');
+    dot.className = 'rapid-dot';
+    if (i < currentAlgoIndex) {
+      dot.classList.add('done');
+      if (algoResults[i] === false) dot.classList.add('wrong');
+    }
+    if (i === currentAlgoIndex) dot.classList.add('current');
+    bar.appendChild(dot);
+  });
+}
+function renderAlgoQuestion() {
+  const container = document.getElementById('algo-container');
+  const q = currentAlgoQuestions[currentAlgoIndex];
+  const tagLabel = q.tag === 'riddle' ? 'CS Folklore' : q.tag === 'logic' ? 'Logic Puzzle' : q.tag === 'output' ? 'Output' : q.tag === 'complexity' ? 'Complexity' : q.tag === 'bitwise' ? 'Bitwise' : q.tag === 'ds' ? 'Data Structure' : q.tag === 'http' ? 'Networking' : q.tag === 'terminal' ? 'Terminal' : q.tag === 'algo' ? 'Algorithm' : q.tag === 'sys' ? 'Systems' : q.tag;
+
+  container.innerHTML = `
+    <div class="q-box">
+      <span class="q-tag ${q.tag}">${tagLabel}</span>
+      <div class="q-prompt">${q.prompt}</div>
+      ${q.code ? `<div class="q-code">${escapeHtml(q.code)}</div>` : ''}
+      <div class="answers" id="algo-answers">
+        ${q.options.map((opt, i) => `
+          <button class="answer-opt" onclick="pickAlgo(${i})">
+            <span class="letter">${String.fromCharCode(65 + i)}</span>
+            <span>${opt}</span>
+          </button>
+        `).join('')}
+      </div>
+      <div class="hint-row">
+        <button class="btn-hint" id="btn-hint-algo" onclick="showHint('algo')">
+          <svg class="icon"><use href="#i-lightbulb"/></svg> Show hint
+        </button>
+        <span class="hint-cost">−40% on this question</span>
+      </div>
+      <div class="hint-box" id="hint-algo">
+        <svg class="icon icon-lg"><use href="#i-lightbulb"/></svg>
+        <div><strong>Hint · </strong><span id="hint-text-algo"></span></div>
+      </div>
+    </div>
+  `;
+}
+function pickAlgo(i) {
+  const q = currentAlgoQuestions[currentAlgoIndex];
+  const btns = document.querySelectorAll('#algo-answers .answer-opt');
+  btns.forEach(b => b.disabled = true);
+  const correct = i === q.correct;
+  algoResults.push(correct);
+  btns[q.correct].classList.add('correct');
+  if (!correct) btns[i].classList.add('wrong');
+
+  let delta = 0;
+  if (correct) {
+    delta = hintsUsed.algo[currentAlgoIndex] ? 5 : 8;
+    score += delta;
+  } else {
+    delta = -3;
+    score = Math.max(0, score - 3);
+  }
+
+  const deltaTag = `<span class="delta ${correct?'plus':'minus'}">${delta>0?'+':''}${delta} pts</span>`;
+  const container = document.getElementById('algo-container');
+  const fb = document.createElement('div');
+  fb.className = 'feedback-box ' + (correct ? 'success' : 'error');
+  fb.style.display = 'flex';
+  fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-${correct?'check':'x'}"/></svg><div><strong>${correct ? 'Correct.' : 'Not quite.'}</strong> ${deltaTag}<br>${q.explain}</div>`;
+  container.querySelector('.q-box').appendChild(fb);
+  document.getElementById('algo-nav').style.display = 'flex';
+  const btn = document.getElementById('btn-algo-next');
+  if (currentAlgoIndex >= currentAlgoQuestions.length - 1) {
+    btn.innerHTML = 'Wire the logic <svg class="icon"><use href="#i-arrow-right"/></svg>';
+  }
+  renderAlgoProgress();
+  updateScoreDisplay();
+}
+function nextAlgoQuestion() {
+  if (currentAlgoIndex < currentAlgoQuestions.length - 1) {
+    currentAlgoIndex++;
+    renderAlgoProgress();
+    renderAlgoQuestion();
+    document.getElementById('algo-nav').style.display = 'none';
+  } else {
+    goTo('screen-wire');
+  }
+}
+
+// ============================================================
+// WIRE
+// ============================================================
+function initWire() {
+  wireStep = 0;
+  currentWirePuzzle = wirePuzzles[Math.floor(Math.random() * wirePuzzles.length)];
+  resetHintUI('wire');
+  const shuffled = shuffle(currentWirePuzzle.blocks);
+
+  const slotsContainer = document.getElementById('wire-slots');
+  slotsContainer.innerHTML = '';
+  currentWirePuzzle.slots.forEach((label, i) => {
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    slot.id = `wire-slot-${i}`;
+    slot.dataset.step = `S${i + 1}`;
+    const span = document.createElement('span');
+    span.textContent = label;
+    slot.appendChild(span);
+    slotsContainer.appendChild(slot);
+  });
+
+  const optsContainer = document.getElementById('wire-options');
+  optsContainer.innerHTML = '';
+  shuffled.forEach(blk => {
+    const btn = document.createElement('button');
+    btn.className = 'code-block';
+    btn.textContent = blk.text;
+    btn.dataset.order = blk.order;
+    btn.onclick = function() { placeWire(this, blk.order); };
+    optsContainer.appendChild(btn);
+  });
+
+  document.getElementById('btn-wire').disabled = true;
+  document.getElementById('wire-feedback').style.display = 'none';
+}
+function placeWire(btn, order) {
+  if (btn.disabled) return;
+  const fb = document.getElementById('wire-feedback');
+  if (order === wireStep) {
+    btn.classList.add('placed');
+    btn.disabled = true;
+    const slot = document.getElementById(`wire-slot-${wireStep}`);
+    slot.classList.add('filled');
+    slot.querySelector('span').textContent = btn.textContent;
+    wireStep++;
+    const pts = hintsUsed.wire ? 2 : 4;
+    score += pts;
+    if (wireStep >= currentWirePuzzle.blocks.length) {
+      document.getElementById('btn-wire').disabled = false;
+      const bonus = hintsUsed.wire ? 4 : 6;
+      score += bonus;
+      fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div><strong>Wired correctly.</strong> <span class="delta plus">+${bonus} bonus</span><br>The flow makes sense end to end.</div>`;
+      fb.className = 'feedback-box success';
+    } else {
+      fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div>Step ${wireStep} placed. <span class="delta plus">+${pts} pts</span></div>`;
+      fb.className = 'feedback-box success';
+    }
+    fb.style.display = 'flex';
+  } else {
+    btn.classList.add('wrong');
+    setTimeout(() => btn.classList.remove('wrong'), 500);
+    score = Math.max(0, score - 2);
+    const correctPos = order + 1;
+    fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not step ${wireStep + 1}.</strong> <span class="delta minus">−2 pts</span><br>That block belongs at step ${correctPos}. Try a different one.</div>`;
+    fb.className = 'feedback-box error';
+    fb.style.display = 'flex';
+  }
+  updateScoreDisplay();
+}
+
+// ============================================================
+// DEBUG
+// ============================================================
+function initDebug() {
+  currentDebugPuzzles = shuffle(debugPuzzles).slice(0, 3);
+  currentDebugRound = 0;
+  hintsUsed.debug = {};
+  renderDebugRound();
+}
+function renderDebugRound() {
+  const p = currentDebugPuzzles[currentDebugRound];
+  resetHintUI('debug');
+  document.getElementById('debug-round-label').textContent = `Round ${currentDebugRound + 1}/3`;
+  document.getElementById('debug-scenario').textContent = p.scenario;
+
+  const viewer = document.getElementById('debug-viewer');
+  viewer.innerHTML = `
+    <div class="cv-header">
+      <span class="cv-lang-badge">${p.lang}</span>
+      <span>${p.file}</span>
+    </div>
+    <div class="cv-body" id="cv-body-${currentDebugRound}">
+      ${p.lines.map((line, i) => `
+        <div class="cv-line selectable" onclick="pickBug(${i})" data-line="${i}">
+          <span class="cv-line-num">${i + 1}</span>
+          <span class="cv-content">${escapeHtml(line)}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  document.getElementById('btn-debug').disabled = true;
+  document.getElementById('debug-feedback').style.display = 'none';
+}
+function pickBug(lineIdx) {
+  const p = currentDebugPuzzles[currentDebugRound];
+  const lines = document.querySelectorAll(`#cv-body-${currentDebugRound} .cv-line`);
+  lines.forEach(l => { l.onclick = null; l.classList.remove('selectable'); });
+
+  const fb = document.getElementById('debug-feedback');
+  const fixCode = `<code style="font-family:JetBrains Mono, monospace;background:var(--code-bg);padding:2px 6px;border-radius:2px;font-size:12px;color:var(--accent)">${escapeHtml(p.fix)}</code>`;
+
+  if (lineIdx === p.bugIndex) {
+    lines[lineIdx].classList.add('fixed');
+    const pts = hintsUsed.debug[currentDebugRound] ? 5 : 8;
+    score += pts;
+    fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div><strong>Nailed it.</strong> <span class="delta plus">+${pts} pts</span><br>Fix: ${fixCode}</div>`;
+    fb.className = 'feedback-box success';
+  } else {
+    lines[lineIdx].classList.add('buggy');
+    lines[p.bugIndex].classList.add('fixed');
+    score = Math.max(0, score - 3);
+    fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not that line.</strong> <span class="delta minus">−3 pts</span><br>The bug was on line ${p.bugIndex + 1}. Fix: ${fixCode}</div>`;
+    fb.className = 'feedback-box error';
+  }
+  fb.style.display = 'flex';
+  document.getElementById('btn-debug').disabled = false;
+  if (currentDebugRound >= currentDebugPuzzles.length - 1) {
+    document.getElementById('btn-debug').innerHTML = 'Git rescue <svg class="icon"><use href="#i-arrow-right"/></svg>';
+  }
+  updateScoreDisplay();
+}
+function nextDebugRound() {
+  if (currentDebugRound < currentDebugPuzzles.length - 1) {
+    currentDebugRound++;
+    renderDebugRound();
+    document.getElementById('btn-debug').innerHTML = 'Next round <svg class="icon"><use href="#i-arrow-right"/></svg>';
+  } else {
+    goTo('screen-git');
+  }
+}
+
+// ============================================================
+// GIT RESCUE
+// ============================================================
+function initGit() {
+  gitStep = 0;
+  currentGitPuzzle = gitPuzzles[Math.floor(Math.random() * gitPuzzles.length)];
+  resetHintUI('git');
+  document.getElementById('git-scenario').textContent = currentGitPuzzle.scenario;
+  const shuffled = shuffle(currentGitPuzzle.blocks);
+
+  const slotsContainer = document.getElementById('git-slots');
+  slotsContainer.innerHTML = '';
+  currentGitPuzzle.slots.forEach((label, i) => {
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    slot.id = `git-slot-${i}`;
+    slot.dataset.step = `S${i + 1}`;
+    const span = document.createElement('span');
+    span.textContent = label;
+    slot.appendChild(span);
+    slotsContainer.appendChild(slot);
+  });
+
+  const optsContainer = document.getElementById('git-options');
+  optsContainer.innerHTML = '';
+  shuffled.forEach(blk => {
+    const btn = document.createElement('button');
+    btn.className = 'code-block';
+    btn.textContent = blk.text;
+    btn.dataset.order = blk.order;
+    btn.onclick = function() { placeGit(this, blk.order); };
+    optsContainer.appendChild(btn);
+  });
+
+  document.getElementById('btn-git').disabled = true;
+  document.getElementById('git-feedback').style.display = 'none';
+}
+function placeGit(btn, order) {
+  if (btn.disabled) return;
+  const fb = document.getElementById('git-feedback');
+  if (order === gitStep) {
+    btn.classList.add('placed');
+    btn.disabled = true;
+    const slot = document.getElementById(`git-slot-${gitStep}`);
+    slot.classList.add('filled');
+    slot.querySelector('span').textContent = btn.textContent;
+    gitStep++;
+    const pts = hintsUsed.git ? 2 : 4;
+    score += pts;
+    if (gitStep >= currentGitPuzzle.blocks.length) {
+      document.getElementById('btn-git').disabled = false;
+      const bonus = hintsUsed.git ? 4 : 6;
+      score += bonus;
+      fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div><strong>Crisis averted.</strong> <span class="delta plus">+${bonus} bonus</span><br>Main branch is safe again.</div>`;
+      fb.className = 'feedback-box success';
+    } else {
+      fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div>Step ${gitStep} placed. <span class="delta plus">+${pts} pts</span></div>`;
+      fb.className = 'feedback-box success';
+    }
+    fb.style.display = 'flex';
+  } else {
+    btn.classList.add('wrong');
+    setTimeout(() => btn.classList.remove('wrong'), 500);
+    score = Math.max(0, score - 2);
+    const correctPos = order + 1;
+    fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not step ${gitStep + 1}.</strong> <span class="delta minus">−2 pts</span><br>That command belongs at step ${correctPos} of the fix.</div>`;
+    fb.className = 'feedback-box error';
+    fb.style.display = 'flex';
+  }
+  updateScoreDisplay();
+}
+
+// ============================================================
+// SCREEN INIT HOOKS
+// ============================================================
+const _origGoTo = goTo;
+goTo = function(id) {
+  _origGoTo(id);
+  if (id === 'screen-features') initFeatures();
+  if (id === 'screen-algo') initAlgo();
+  if (id === 'screen-wire') initWire();
+  if (id === 'screen-debug') initDebug();
+  if (id === 'screen-git') initGit();
+  // Cloud polling: keep it running while leaderboard or admin is open, stop elsewhere.
+  if (id === 'screen-leaderboard' || id === 'screen-admin') {
+    if (CLOUD_ENABLED) syncFromCloud();
+    startCloudPolling();
+  } else {
+    stopCloudPolling();
+  }
+};
+
+// ============================================================
+// FINISH
+// ============================================================
+function finishGame() {
+  clearInterval(timerInterval);
+  const timeTaken = GAME_TIME - timeLeft;
+
+  score += selectedTech.length * 2;
+  score += 8; // domain bonus
+  if (timeTaken < 540) score += 10; // speed bonus (<9 min)
+  score = Math.min(score, 100);
+  score = Math.max(score, 0);
+
+  const entry = {
+    name: userData.name,
+    domain: domainNames[selectedDomain] || 'Unknown',
+    score: score,
+    time: timeTaken,
+    timestamp: Date.now(),
+    email: userData.email,
+    phone: userData.phone,
+    location: userData.location,
+    occupation: userData.occupation,
+    stack: selectedTech
+  };
+  cachedLeaderboard.push(entry);
+  saveCacheLocal();
+  pushEntryToCloud(entry); // fire-and-forget — user sees their entry immediately
+
+  document.getElementById('res-project-name').textContent =
+    (domainNames[selectedDomain] || 'Your') + ' App';
+  document.getElementById('res-name').textContent = userData.name || 'Anonymous';
+  document.getElementById('res-role').textContent = userData.occupation || 'Builder';
+  animateScore(document.getElementById('res-score'), 0, score);
+  document.getElementById('res-time').textContent = formatTime(timeTaken);
+  document.getElementById('res-stack').innerHTML =
+    selectedTech.map(t => `<span class="build-tag">${escapeHtml(t)}</span>`).join('');
+
+  let msg = '';
+  if (score >= 90) msg = 'Unicorn territory. Investors are already knocking.';
+  else if (score >= 75) msg = 'Solid MVP. Ready for demo day.';
+  else if (score >= 60) msg = 'Good prototype. A few more sprints and you\'re there.';
+  else msg = 'Rough draft — every startup begins somewhere.';
+  if (timeLeft <= 0) msg += ' (Time ran out.)';
+  document.getElementById('res-message').textContent = msg;
+
+  if (score >= 75) spawnConfetti();
+  goTo('screen-result');
+}
+function spawnConfetti() {
+  const colors = ['#e8a838', '#8ab5d1', '#9dbf4e', '#d67a6e', '#d4a44b', '#f0ead7'];
+  const container = document.createElement('div');
+  container.className = 'confetti';
+  document.body.appendChild(container);
+  for (let i = 0; i < 50; i++) {
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    piece.style.left = Math.random() * 100 + '%';
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.animationDelay = Math.random() * 1.2 + 's';
+    piece.style.width = (5 + Math.random() * 8) + 'px';
+    piece.style.height = (5 + Math.random() * 8) + 'px';
+    piece.style.borderRadius = Math.random() > 0.5 ? '1px' : '50%';
+    container.appendChild(piece);
+  }
+  setTimeout(() => container.remove(), 4000);
+}
+function resetGame() {
+  ['reg-name','reg-phone','reg-email','reg-location','reg-occupation'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('reg-consent').checked = false;
+  document.getElementById('btn-debug').innerHTML = 'Next round <svg class="icon"><use href="#i-arrow-right"/></svg>';
+  goTo('screen-welcome');
+}
+
+// ============================================================
+// LEADERBOARD
+// ============================================================
+function renderLeaderboard() {
+  const tbody = document.getElementById('lb-body');
+  const empty = document.getElementById('lb-empty');
+  const table = document.getElementById('lb-table');
+  const lb = loadLeaderboard();
+
+  if (lb.length === 0) {
+    empty.classList.remove('hidden');
+    table.classList.add('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  table.classList.remove('hidden');
+
+  const sorted = [...lb].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.time - b.time;
+  });
+
+  tbody.innerHTML = '';
+  sorted.forEach((entry, i) => {
+    const rank = i + 1;
+    const tr = document.createElement('tr');
+    let rowClass = '';
+    let prizeTag = '';
+    if (rank === 1) { rowClass = 'lb-first'; prizeTag = '<span class="prize-tag gold">1ST</span>'; }
+    else if (rank === 2) { rowClass = 'lb-second'; prizeTag = '<span class="prize-tag silver">2ND</span>'; }
+    if (rowClass) tr.className = rowClass;
+    tr.innerHTML = `
+      <td><span class="lb-rank">${rank}</span></td>
+      <td>${escapeHtml(entry.name)}${prizeTag}</td>
+      <td style="color:var(--text-muted)">${escapeHtml(entry.domain)}</td>
+      <td class="right"><strong>${entry.score}</strong></td>
+      <td class="right" style="color:var(--text-muted)">${formatTime(entry.time)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ============================================================
+// ADMIN
+// ============================================================
+function tryAdminLogin() {
+  const pw = document.getElementById('admin-password').value;
+  const err = document.getElementById('err-admin-password');
+  if (pw === ADMIN_PASSWORD) {
+    err.classList.remove('show');
+    document.getElementById('admin-password').value = '';
+    goTo('screen-admin');
+  } else {
+    err.classList.add('show');
+  }
+}
+function switchAdminTab(tab) {
+  document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.admin-section').forEach(s => s.classList.add('hidden'));
+  event.target.classList.add('active');
+  document.getElementById('admin-tab-' + tab).classList.remove('hidden');
+  if (tab === 'leaderboard') renderAdminLeaderboard();
+  if (tab === 'registrations') renderAdminRegistrations();
+}
+function renderAdminDashboard() {
+  const lb = loadLeaderboard();
+  const stats = document.getElementById('admin-stats');
+  const totalPlayers = lb.length;
+  const avgScore = lb.length ? Math.round(lb.reduce((s, e) => s + e.score, 0) / lb.length) : 0;
+  const maxScore = lb.length ? Math.max(...lb.map(e => e.score)) : 0;
+  const avgTime = lb.length ? Math.round(lb.reduce((s, e) => s + e.time, 0) / lb.length) : 0;
+  stats.innerHTML = `
+    <div class="stat-card"><div class="val">${totalPlayers}</div><div class="lbl">Total players</div></div>
+    <div class="stat-card"><div class="val">${avgScore}</div><div class="lbl">Avg score</div></div>
+    <div class="stat-card"><div class="val">${maxScore}</div><div class="lbl">Top score</div></div>
+    <div class="stat-card"><div class="val">${formatTime(avgTime)}</div><div class="lbl">Avg time</div></div>
+  `;
+  renderAdminRegistrations();
+}
+function renderAdminRegistrations() {
+  const container = document.getElementById('admin-registrations-table');
+  const lb = loadLeaderboard();
+  if (lb.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:40px">No registrations yet.</p>';
+    return;
+  }
+  container.innerHTML = `
+    <div style="overflow-x:auto">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Name</th><th>Contact</th><th>Location</th><th>Role</th>
+          <th>Domain</th><th>Score</th><th>Time</th><th>Stack</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lb.map((e, i) => `
+          <tr>
+            <td>${escapeHtml(e.name || '')}</td>
+            <td style="font-size:11px;color:var(--text-muted)">
+              ${escapeHtml(e.email || '')}<br>${escapeHtml(e.phone || '')}
+            </td>
+            <td>${escapeHtml(e.location || '')}</td>
+            <td style="color:var(--text-muted)">${escapeHtml(e.occupation || '')}</td>
+            <td>${escapeHtml(e.domain || '')}</td>
+            <td><strong>${e.score}</strong></td>
+            <td class="mono">${formatTime(e.time)}</td>
+            <td style="font-size:11px;color:var(--text-muted)">${(e.stack || []).join(', ')}</td>
+            <td><button class="action-btn delete" onclick="deleteEntry(${i})">Delete</button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    </div>
+  `;
+}
+function renderAdminLeaderboard() {
+  const container = document.getElementById('admin-lb-container');
+  const lb = loadLeaderboard();
+  if (lb.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:40px">No entries yet.</p>';
+    return;
+  }
+  const sorted = [...lb].sort((a, b) => b.score !== a.score ? b.score - a.score : a.time - b.time);
+  container.innerHTML = `
+    <div class="lb-table-wrap">
+    <table class="lb-table">
+      <thead>
+        <tr><th style="width:40px">#</th><th>Builder</th><th>Domain</th><th class="right">Score</th><th class="right">Time</th></tr>
+      </thead>
+      <tbody>
+        ${sorted.map((e, i) => {
+          const rank = i + 1;
+          let rowClass = '', prizeTag = '';
+          if (rank === 1) { rowClass = 'lb-first'; prizeTag = '<span class="prize-tag gold">1ST</span>'; }
+          else if (rank === 2) { rowClass = 'lb-second'; prizeTag = '<span class="prize-tag silver">2ND</span>'; }
+          return `<tr class="${rowClass}">
+            <td><span class="lb-rank">${rank}</span></td>
+            <td>${escapeHtml(e.name)}${prizeTag}</td>
+            <td style="color:var(--text-muted)">${escapeHtml(e.domain)}</td>
+            <td class="right"><strong>${e.score}</strong></td>
+            <td class="right mono" style="color:var(--text-muted)">${formatTime(e.time)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    </div>
+  `;
+}
+function deleteEntry(i) {
+  if (!confirm('Delete this entry?')) return;
+  const entry = cachedLeaderboard[i];
+  cachedLeaderboard.splice(i, 1);
+  saveCacheLocal();
+  deleteFromCloud(entry && entry._key);
+  renderAdminDashboard();
+}
+function clearAllEntries() {
+  if (!confirm('Delete ALL entries? This cannot be undone.')) return;
+  cachedLeaderboard = [];
+  saveCacheLocal();
+  clearAllFromCloud();
+  renderAdminDashboard();
+}
+function downloadCSV() {
+  const lb = loadLeaderboard();
+  if (lb.length === 0) { alert('No data to export'); return; }
+  const headers = ['Name','Email','Phone','Location','Occupation','Domain','Score','Time','Stack','Timestamp'];
+  const rows = lb.map(e => [
+    e.name || '', e.email || '', e.phone || '', e.location || '', e.occupation || '',
+    e.domain || '', e.score, e.time, (e.stack || []).join('; '),
+    new Date(e.timestamp || Date.now()).toISOString()
+  ]);
+  const csv = [headers, ...rows].map(row =>
+    row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+  ).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `kochi-hackathon-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function addEntry() {
+  const name = document.getElementById('add-name').value.trim();
+  const score = parseInt(document.getElementById('add-score').value) || 0;
+  const time = parseInt(document.getElementById('add-time').value) || 0;
+  if (!name) { alert('Name is required'); return; }
+  const stack = document.getElementById('add-stack').value.split(',').map(s => s.trim()).filter(Boolean);
+  const entry = {
+    name,
+    email: document.getElementById('add-email').value.trim(),
+    phone: document.getElementById('add-phone').value.trim(),
+    location: document.getElementById('add-location').value.trim(),
+    occupation: document.getElementById('add-occupation').value,
+    domain: document.getElementById('add-domain').value,
+    score: Math.min(100, Math.max(0, score)),
+    time: time,
+    stack: stack,
+    timestamp: Date.now()
+  };
+  const lb = loadLeaderboard();
+  lb.push(entry);
+  saveCacheLocal();
+  pushEntryToCloud(entry);
+  clearAddForm();
+  renderAdminDashboard();
+  alert('Entry added.');
+}
+function clearAddForm() {
+  ['add-name','add-phone','add-email','add-location','add-score','add-time','add-stack'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+}
+
+</script>
+</body>
+</html>
