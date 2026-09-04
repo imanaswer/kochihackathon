@@ -2831,8 +2831,8 @@ let deadline = 0;            // wall-clock end time (ms) so the timer survives r
 let currentScreen = 'screen-welcome';
 // Scoring accumulates RAW (may go negative) and is clamped once in finishGame — so
 // escalating penalties keep biting even after a player has bottomed out.
-let wireMiss = 0, wireStepMiss = 0;   // wire: total misses, misses on current step
-let gitMiss = 0, gitStepMiss = 0;     // git: same
+let wireMiss = 0;                     // wire: total misplacements
+let gitMiss = 0;                      // git: total wrong commands
 let featuresScored = false;           // award the roadmap points once, not per re-toggle
 let userData = {};
 let hintsUsed = { features:false, wire:false, git:false, algo:{}, debug:{} };
@@ -3097,7 +3097,7 @@ function saveSnapshot() {
       currentAlgoQuestions, currentAlgoIndex, algoResults,
       currentWirePuzzle, wireStep, currentDebugPuzzles, currentDebugRound,
       currentGitPuzzle, gitStep, score, deadline, userData, hintsUsed,
-      wireMiss, wireStepMiss, gitMiss, gitStepMiss, featuresScored
+      wireMiss, gitMiss, featuresScored
     }));
   } catch {}
 }
@@ -3156,7 +3156,7 @@ function startGame() {
   selectedTech = [];
   score = 0;
   timeLeft = GAME_TIME;
-  wireMiss = wireStepMiss = gitMiss = gitStepMiss = 0;
+  wireMiss = gitMiss = 0;
   featuresScored = false;
   hintsUsed = { features:false, wire:false, git:false, algo:{}, debug:{} };
   deadline = Date.now() + GAME_TIME * 1000;
@@ -3389,7 +3389,7 @@ function nextAlgoQuestion() {
 // ============================================================
 function initWire() {
   wireStep = 0;
-  wireMiss = 0; wireStepMiss = 0;
+  wireMiss = 0;
   currentWirePuzzle = wirePuzzles[Math.floor(Math.random() * wirePuzzles.length)];
   resetHintUI('wire');
   const shuffled = shuffle(currentWirePuzzle.blocks);
@@ -3432,9 +3432,8 @@ function placeWire(btn, order) {
     slot.querySelector('span').textContent = btn.textContent;
     wireStep++;
     const base = hintsUsed.wire ? 2 : 4;
-    const pts = Math.max(0, base - 2 * wireStepMiss); // retries on this step erode its reward
+    const pts = base;
     score += pts;
-    wireStepMiss = 0;
     if (wireStep >= currentWirePuzzle.blocks.length) {
       document.getElementById('btn-wire').disabled = false;
       if (wireMiss <= 1) {
@@ -3453,8 +3452,8 @@ function placeWire(btn, order) {
   } else {
     btn.classList.add('wrong');
     setTimeout(() => btn.classList.remove('wrong'), 500);
-    wireStepMiss++; wireMiss++;
-    const penalty = 2 * wireStepMiss; // escalates each retry on this step: −2, −4, −6…
+    wireMiss++;
+    const penalty = 2;
     score -= penalty;
     const correctPos = order + 1;
     fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not step ${wireStep + 1}.</strong> <span class="delta minus">−${penalty} pts</span><br>That block belongs at step ${correctPos}. Try a different one.</div>`;
@@ -3541,7 +3540,7 @@ function nextDebugRound() {
 // ============================================================
 function initGit() {
   gitStep = 0;
-  gitMiss = 0; gitStepMiss = 0;
+  gitMiss = 0;
   currentGitPuzzle = gitPuzzles[Math.floor(Math.random() * gitPuzzles.length)];
   resetHintUI('git');
   document.getElementById('git-scenario').textContent = currentGitPuzzle.scenario;
@@ -3585,9 +3584,8 @@ function placeGit(btn, order) {
     slot.querySelector('span').textContent = btn.textContent;
     gitStep++;
     const base = hintsUsed.git ? 2 : 4;
-    const pts = Math.max(0, base - 2 * gitStepMiss); // retries on this step erode its reward
+    const pts = base;
     score += pts;
-    gitStepMiss = 0;
     if (gitStep >= currentGitPuzzle.blocks.length) {
       document.getElementById('btn-git').disabled = false;
       if (gitMiss <= 1) {
@@ -3606,8 +3604,8 @@ function placeGit(btn, order) {
   } else {
     btn.classList.add('wrong');
     setTimeout(() => btn.classList.remove('wrong'), 500);
-    gitStepMiss++; gitMiss++;
-    const penalty = 2 * gitStepMiss; // escalates each retry on this step: −2, −4, −6…
+    gitMiss++;
+    const penalty = 2;
     score -= penalty;
     const correctPos = order + 1;
     fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not step ${gitStep + 1}.</strong> <span class="delta minus">−${penalty} pts</span><br>That command belongs at step ${correctPos} of the fix.</div>`;
