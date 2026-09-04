@@ -1526,6 +1526,11 @@ input::placeholder{color:var(--text-dim)}
 .hidden{display:none !important}
 .subtitle{color:var(--text-muted);font-size:var(--t-sm);margin-bottom:16px}
 
+/* G-TEC branding */
+.brand-logo{display:block;height:64px;width:auto;border-radius:10px;margin:0 auto 20px}
+.result-hero .brand-logo{height:52px;margin-bottom:16px}
+.attempt-note{color:var(--danger);font-size:var(--t-sm);text-align:center;margin-top:12px}
+
 /* Reduced motion */
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:0.01ms !important;transition-duration:0.01ms !important}
@@ -1602,6 +1607,7 @@ input::placeholder{color:var(--text-dim)}
      ========================================================= -->
 <div class="screen active" id="screen-welcome">
   <div class="hero">
+    <img class="brand-logo" src="logo.png" alt="G-TEC Education" />
     <div class="hero-meta">
       <div class="hero-brand">
         <span class="hero-brand-mark"><svg class="icon icon-lg"><use href="#i-terminal"/></svg></span>
@@ -1647,11 +1653,12 @@ input::placeholder{color:var(--text-dim)}
     </div>
 
     <div class="btn-row">
-      <button class="btn" onclick="goTo('screen-register')">
+      <button class="btn" id="btn-start-welcome" onclick="goTo('screen-register')">
         Start building <svg class="icon"><use href="#i-arrow-right"/></svg>
       </button>
       <button class="btn-secondary btn" onclick="goTo('screen-leaderboard')">View leaderboard</button>
     </div>
+    <div class="attempt-note hidden" id="attempt-note">You've already used your one attempt on this device.</div>
   </div>
 </div>
 
@@ -2039,6 +2046,7 @@ input::placeholder{color:var(--text-dim)}
      ========================================================= -->
 <div class="screen" id="screen-result">
   <div class="result-hero">
+    <img class="brand-logo" src="logo.png" alt="G-TEC Education" />
     <div class="result-label">Ship complete</div>
     <div class="result-title" id="res-project-name">Your Project</div>
     <div class="result-score" id="res-score">0</div>
@@ -2817,8 +2825,11 @@ let gitStep = 0;
 let score = 0;
 let timeLeft = GAME_TIME;
 let timerInterval = null;
+let deadline = 0;            // wall-clock end time (ms) so the timer survives refresh
+let currentScreen = 'screen-welcome';
 let userData = {};
 let hintsUsed = { features:false, wire:false, git:false, algo:{}, debug:{} };
+const GAME_SCREENS = new Set(['screen-domain','screen-features','screen-stack','screen-algo','screen-wire','screen-debug','screen-git']);
 
 // ============================================================
 // HELPERS
@@ -2835,9 +2846,9 @@ function loadCacheLocal() {
 }
 
 // -------- Cloud sync (Google Sheets via Apps Script Web App) --------
-// IMPORTANT: POSTs use Content-Type: text/plain. Apps Script Web Apps
-// don't handle CORS preflight (OPTIONS) requests — using text/plain
-// keeps the request "simple" so the browser sends it directly.
+// POSTs go to the same-origin Vercel proxy (/api/leaderboard), so there is no
+// CORS preflight to avoid — send real JSON so the proxy receives a parsed
+// object. The proxy re-encodes it as text/plain on the hop to Apps Script.
 async function syncFromCloud() {
   if (!CLOUD_ENABLED) return;
   try {
@@ -2861,24 +2872,27 @@ async function syncFromCloud() {
   }
 }
 async function pushEntryToCloud(entry) {
-  if (!CLOUD_ENABLED) return;
+  if (!CLOUD_ENABLED) return true;
   try {
     const res = await fetch(SHEETS_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'add', entry: entry }),
       redirect: 'follow'
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
+    if (data && data.error) throw new Error(data.error);
     if (data && data.key) {
       entry._key = data.key;
       saveCacheLocal();
     }
+    return true;
   } catch (err) {
     console.error('Failed to push entry to sheet:', err);
     cloudSyncState = 'error';
     updateSyncBadge();
+    return false;
   }
 }
 async function deleteFromCloud(_key) {
@@ -2886,7 +2900,7 @@ async function deleteFromCloud(_key) {
   try {
     await fetch(SHEETS_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete', key: _key }),
       redirect: 'follow'
     });
@@ -2899,7 +2913,7 @@ async function clearAllFromCloud() {
   try {
     await fetch(SHEETS_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'clear' }),
       redirect: 'follow'
     });
@@ -2933,10 +2947,11 @@ if (CLOUD_ENABLED) {
   syncFromCloud();
 }
 // Update badges once the DOM is ready
+function onReady() { updateSyncBadge(); if (restoreSession()) return; applyAttemptLock(); }
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', updateSyncBadge);
+  document.addEventListener('DOMContentLoaded', onReady);
 } else {
-  updateSyncBadge();
+  onReady();
 }
 function shuffle(arr) {
   const a = [...arr];
@@ -2949,9 +2964,11 @@ function shuffle(arr) {
 function goTo(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
+  currentScreen = id;
   window.scrollTo({top:0,behavior:'smooth'});
   if (id === 'screen-leaderboard') renderLeaderboard();
   if (id === 'screen-admin') renderAdminDashboard();
+  if (id === 'screen-welcome') applyAttemptLock();
 }
 function updateAllTimers() {
   const timeStr = formatTime(timeLeft);
@@ -3047,7 +3064,62 @@ function resetHintUI(puzzle) {
 // ============================================================
 // REGISTRATION
 // ============================================================
+// One attempt per device (proctored event — no restarts)
+const ATTEMPT_KEY = 'gtec_attempted';
+function hasAttempted() { try { return localStorage.getItem(ATTEMPT_KEY) === '1'; } catch { return false; } }
+function markAttempted() { try { localStorage.setItem(ATTEMPT_KEY, '1'); } catch {} }
+// Proctor reset: run gtecResetAttempt() in the console to free the device for the next participant.
+window.gtecResetAttempt = () => { try { localStorage.removeItem(ATTEMPT_KEY); } catch {} location.reload(); };
+function applyAttemptLock() {
+  if (!hasAttempted()) return;
+  const btn = document.getElementById('btn-start-welcome');
+  if (btn) { btn.disabled = true; btn.onclick = null; btn.textContent = 'Attempt used'; }
+  document.getElementById('attempt-note')?.classList.remove('hidden');
+}
+
+// Resume-on-refresh: snapshot the live game screen + state so a reload lands them
+// exactly where they were (the deadline keeps ticking — no advantage from refreshing).
+const SESSION_KEY = 'gtec_session';
+function saveSnapshot() {
+  if (!GAME_SCREENS.has(currentScreen) || !deadline || Date.now() >= deadline) return;
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      screen: currentScreen,
+      html: document.getElementById(currentScreen).innerHTML,
+      selectedDomain, selectedFeatures, selectedTech,
+      currentAlgoQuestions, currentAlgoIndex, algoResults,
+      currentWirePuzzle, wireStep, currentDebugPuzzles, currentDebugRound,
+      currentGitPuzzle, gitStep, score, deadline, userData, hintsUsed
+    }));
+  } catch {}
+}
+function clearSnapshot() { try { localStorage.removeItem(SESSION_KEY); } catch {} }
+function restoreSession() {
+  let s; try { s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return false; }
+  if (!s || !GAME_SCREENS.has(s.screen)) return false;
+  selectedDomain = s.selectedDomain; selectedFeatures = s.selectedFeatures || []; selectedTech = s.selectedTech || [];
+  currentAlgoQuestions = s.currentAlgoQuestions || []; currentAlgoIndex = s.currentAlgoIndex || 0; algoResults = s.algoResults || [];
+  currentWirePuzzle = s.currentWirePuzzle; wireStep = s.wireStep || 0;
+  currentDebugPuzzles = s.currentDebugPuzzles || []; currentDebugRound = s.currentDebugRound || 0;
+  currentGitPuzzle = s.currentGitPuzzle; gitStep = s.gitStep || 0;
+  score = s.score || 0; deadline = s.deadline || 0; userData = s.userData || {};
+  hintsUsed = s.hintsUsed || { features:false, wire:false, git:false, algo:{}, debug:{} };
+  if (!deadline || Date.now() >= deadline) { clearSnapshot(); finishGame(); return true; } // time ran out while away
+  timeLeft = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+  document.getElementById(s.screen).innerHTML = s.html;
+  document.querySelectorAll('.screen').forEach(x => x.classList.remove('active'));
+  document.getElementById(s.screen).classList.add('active');
+  currentScreen = s.screen;
+  startTimer();
+  updateAllTimers();
+  updateScoreDisplay();
+  return true;
+}
+window.addEventListener('pagehide', saveSnapshot);
+window.addEventListener('beforeunload', saveSnapshot);
+
 function validateAndStart() {
+  if (hasAttempted()) { applyAttemptLock(); goTo('screen-welcome'); return; }
   let valid = true;
   document.querySelectorAll('.error-msg').forEach(el => el.classList.remove('show'));
 
@@ -3070,21 +3142,26 @@ function validateAndStart() {
   startGame();
 }
 function startGame() {
+  markAttempted();
   selectedDomain = null;
   selectedFeatures = [];
   selectedTech = [];
   score = 0;
   timeLeft = GAME_TIME;
   hintsUsed = { features:false, wire:false, git:false, algo:{}, debug:{} };
+  deadline = Date.now() + GAME_TIME * 1000;
   updateAllTimers();
   updateScoreDisplay();
+  startTimer();
+  goTo('screen-domain');
+}
+function startTimer() {
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(() => {
-    timeLeft--;
+    timeLeft = Math.max(0, Math.round((deadline - Date.now()) / 1000));
     updateAllTimers();
     if (timeLeft <= 0) { clearInterval(timerInterval); finishGame(); }
   }, 1000);
-  goTo('screen-domain');
 }
 
 // ============================================================
@@ -3536,6 +3613,7 @@ goTo = function(id) {
 // ============================================================
 function finishGame() {
   clearInterval(timerInterval);
+  clearSnapshot();
   const timeTaken = GAME_TIME - timeLeft;
 
   score += selectedTech.length * 2;
@@ -3791,7 +3869,7 @@ function downloadCSV() {
   a.click();
   URL.revokeObjectURL(url);
 }
-function addEntry() {
+async function addEntry() {
   const name = document.getElementById('add-name').value.trim();
   const score = parseInt(document.getElementById('add-score').value) || 0;
   const time = parseInt(document.getElementById('add-time').value) || 0;
@@ -3812,10 +3890,11 @@ function addEntry() {
   const lb = loadLeaderboard();
   lb.push(entry);
   saveCacheLocal();
-  pushEntryToCloud(entry);
+  const ok = await pushEntryToCloud(entry);
   clearAddForm();
   renderAdminDashboard();
-  alert('Entry added.');
+  alert(ok ? 'Entry added and saved to the sheet.'
+           : 'Entry saved locally, but writing to the Google Sheet failed. Check the connection and try Refresh.');
 }
 function clearAddForm() {
   ['add-name','add-phone','add-email','add-location','add-score','add-time','add-stack'].forEach(id => {
