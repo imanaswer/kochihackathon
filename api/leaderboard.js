@@ -22,10 +22,21 @@ export default async function handler(req, res) {
       headers['Content-Type'] = 'text/plain;charset=utf-8';
     }
 
+    // Forward the body verbatim. Vercel gives req.body as an object for
+    // application/json and as a raw string for text/plain — stringifying a
+    // string would double-encode it, so Apps Script would JSON.parse it back
+    // into a string and drop `payload.entry`. Only stringify actual objects.
+    const outgoingBody =
+      req.method === 'GET' || req.method === 'HEAD'
+        ? undefined
+        : typeof req.body === 'string'
+          ? req.body
+          : JSON.stringify(req.body ?? {});
+
     const upstream = await fetch(url.toString(), {
       method: req.method,
       headers,
-      body: req.method === 'GET' || req.method === 'HEAD' ? undefined : JSON.stringify(req.body),
+      body: outgoingBody,
       redirect: 'follow'
     });
 
