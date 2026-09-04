@@ -2827,6 +2827,11 @@ let timeLeft = GAME_TIME;
 let timerInterval = null;
 let deadline = 0;            // wall-clock end time (ms) so the timer survives refresh
 let currentScreen = 'screen-welcome';
+// Scoring accumulates RAW (may go negative) and is clamped once in finishGame — so
+// escalating penalties keep biting even after a player has bottomed out.
+let wireMiss = 0, wireStepMiss = 0;   // wire: total misses, misses on current step
+let gitMiss = 0, gitStepMiss = 0;     // git: same
+let featuresScored = false;           // award the roadmap points once, not per re-toggle
 let userData = {};
 let hintsUsed = { features:false, wire:false, git:false, algo:{}, debug:{} };
 const GAME_SCREENS = new Set(['screen-domain','screen-features','screen-stack','screen-algo','screen-wire','screen-debug','screen-git']);
@@ -2984,7 +2989,7 @@ function formatTime(seconds) {
 }
 function updateScoreDisplay() {
   document.querySelectorAll('.game-score').forEach(el => {
-    el.textContent = score;
+    el.textContent = Math.max(0, score); // never show negative; raw score can dip below 0
     const pill = el.closest('.gh-score');
     if (pill) {
       pill.classList.add('pop');
@@ -3089,7 +3094,8 @@ function saveSnapshot() {
       selectedDomain, selectedFeatures, selectedTech,
       currentAlgoQuestions, currentAlgoIndex, algoResults,
       currentWirePuzzle, wireStep, currentDebugPuzzles, currentDebugRound,
-      currentGitPuzzle, gitStep, score, deadline, userData, hintsUsed
+      currentGitPuzzle, gitStep, score, deadline, userData, hintsUsed,
+      wireMiss, wireStepMiss, gitMiss, gitStepMiss, featuresScored
     }));
   } catch {}
 }
@@ -3104,7 +3110,7 @@ function restoreSession() {
   currentGitPuzzle = s.currentGitPuzzle; gitStep = s.gitStep || 0;
   score = s.score || 0; deadline = s.deadline || 0; userData = s.userData || {};
   hintsUsed = s.hintsUsed || { features:false, wire:false, git:false, algo:{}, debug:{} };
-  if (!deadline || Date.now() >= deadline) { clearSnapshot(); finishGame(); return true; } // time ran out while away
+  if (!deadline || Date.now() >= deadline) { timeLeft = 0; clearSnapshot(); finishGame(); return true; } // time ran out while away
   timeLeft = Math.max(0, Math.round((deadline - Date.now()) / 1000));
   document.getElementById(s.screen).innerHTML = s.html;
   document.querySelectorAll('.screen').forEach(x => x.classList.remove('active'));
@@ -3148,6 +3154,8 @@ function startGame() {
   selectedTech = [];
   score = 0;
   timeLeft = GAME_TIME;
+  wireMiss = wireStepMiss = gitMiss = gitStepMiss = 0;
+  featuresScored = false;
   hintsUsed = { features:false, wire:false, git:false, algo:{}, debug:{} };
   deadline = Date.now() + GAME_TIME * 1000;
   updateAllTimers();
@@ -3207,10 +3215,11 @@ function selectFeature(idx) {
   }
   renderFeatureBuild();
   document.getElementById('btn-features').disabled = selectedFeatures.length !== 3;
-  if (selectedFeatures.length === 3) {
+  if (selectedFeatures.length === 3 && !featuresScored) {
     let addedScore = 15;
     if (hintsUsed.features) addedScore = Math.round(addedScore * 0.6);
     score += addedScore;
+    featuresScored = true; // once only — re-toggling must not farm points
     updateScoreDisplay();
   }
 }
@@ -3344,7 +3353,7 @@ function pickAlgo(i) {
     score += delta;
   } else {
     delta = -3;
-    score = Math.max(0, score - 3);
+    score -= 3;
   }
 
   const deltaTag = `<span class="delta ${correct?'plus':'minus'}">${delta>0?'+':''}${delta} pts</span>`;
@@ -3378,6 +3387,7 @@ function nextAlgoQuestion() {
 // ============================================================
 function initWire() {
   wireStep = 0;
+  wireMiss = 0; wireStepMiss = 0;
   currentWirePuzzle = wirePuzzles[Math.floor(Math.random() * wirePuzzles.length)];
   resetHintUI('wire');
   const shuffled = shuffle(currentWirePuzzle.blocks);
@@ -3419,13 +3429,19 @@ function placeWire(btn, order) {
     slot.classList.add('filled');
     slot.querySelector('span').textContent = btn.textContent;
     wireStep++;
-    const pts = hintsUsed.wire ? 2 : 4;
+    const base = hintsUsed.wire ? 2 : 4;
+    const pts = Math.max(0, base - 2 * wireStepMiss); // retries on this step erode its reward
     score += pts;
+    wireStepMiss = 0;
     if (wireStep >= currentWirePuzzle.blocks.length) {
       document.getElementById('btn-wire').disabled = false;
-      const bonus = hintsUsed.wire ? 4 : 6;
-      score += bonus;
-      fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div><strong>Wired correctly.</strong> <span class="delta plus">+${bonus} bonus</span><br>The flow makes sense end to end.</div>`;
+      if (wireMiss <= 1) {
+        const bonus = hintsUsed.wire ? 4 : 6;
+        score += bonus;
+        fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div><strong>Wired correctly.</strong> <span class="delta plus">+${bonus} clean-solve bonus</span><br>The flow makes sense end to end.</div>`;
+      } else {
+        fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div><strong>Wired correctly.</strong><br>No bonus — ${wireMiss} misplacements along the way.</div>`;
+      }
       fb.className = 'feedback-box success';
     } else {
       fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div>Step ${wireStep} placed. <span class="delta plus">+${pts} pts</span></div>`;
@@ -3435,9 +3451,11 @@ function placeWire(btn, order) {
   } else {
     btn.classList.add('wrong');
     setTimeout(() => btn.classList.remove('wrong'), 500);
-    score = Math.max(0, score - 2);
+    wireStepMiss++; wireMiss++;
+    const penalty = 2 * wireStepMiss; // escalates each retry on this step: −2, −4, −6…
+    score -= penalty;
     const correctPos = order + 1;
-    fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not step ${wireStep + 1}.</strong> <span class="delta minus">−2 pts</span><br>That block belongs at step ${correctPos}. Try a different one.</div>`;
+    fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not step ${wireStep + 1}.</strong> <span class="delta minus">−${penalty} pts</span><br>That block belongs at step ${correctPos}. Try a different one.</div>`;
     fb.className = 'feedback-box error';
     fb.style.display = 'flex';
   }
@@ -3495,7 +3513,7 @@ function pickBug(lineIdx) {
   } else {
     lines[lineIdx].classList.add('buggy');
     lines[p.bugIndex].classList.add('fixed');
-    score = Math.max(0, score - 3);
+    score -= 3;
     fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not that line.</strong> <span class="delta minus">−3 pts</span><br>The bug was on line ${p.bugIndex + 1}. Fix: ${fixCode}</div>`;
     fb.className = 'feedback-box error';
   }
@@ -3521,6 +3539,7 @@ function nextDebugRound() {
 // ============================================================
 function initGit() {
   gitStep = 0;
+  gitMiss = 0; gitStepMiss = 0;
   currentGitPuzzle = gitPuzzles[Math.floor(Math.random() * gitPuzzles.length)];
   resetHintUI('git');
   document.getElementById('git-scenario').textContent = currentGitPuzzle.scenario;
@@ -3563,13 +3582,19 @@ function placeGit(btn, order) {
     slot.classList.add('filled');
     slot.querySelector('span').textContent = btn.textContent;
     gitStep++;
-    const pts = hintsUsed.git ? 2 : 4;
+    const base = hintsUsed.git ? 2 : 4;
+    const pts = Math.max(0, base - 2 * gitStepMiss); // retries on this step erode its reward
     score += pts;
+    gitStepMiss = 0;
     if (gitStep >= currentGitPuzzle.blocks.length) {
       document.getElementById('btn-git').disabled = false;
-      const bonus = hintsUsed.git ? 4 : 6;
-      score += bonus;
-      fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div><strong>Crisis averted.</strong> <span class="delta plus">+${bonus} bonus</span><br>Main branch is safe again.</div>`;
+      if (gitMiss <= 1) {
+        const bonus = hintsUsed.git ? 4 : 6;
+        score += bonus;
+        fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div><strong>Crisis averted.</strong> <span class="delta plus">+${bonus} clean-solve bonus</span><br>Main branch is safe again.</div>`;
+      } else {
+        fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div><strong>Crisis averted.</strong><br>No bonus — ${gitMiss} wrong commands along the way.</div>`;
+      }
       fb.className = 'feedback-box success';
     } else {
       fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-check"/></svg><div>Step ${gitStep} placed. <span class="delta plus">+${pts} pts</span></div>`;
@@ -3579,9 +3604,11 @@ function placeGit(btn, order) {
   } else {
     btn.classList.add('wrong');
     setTimeout(() => btn.classList.remove('wrong'), 500);
-    score = Math.max(0, score - 2);
+    gitStepMiss++; gitMiss++;
+    const penalty = 2 * gitStepMiss; // escalates each retry on this step: −2, −4, −6…
+    score -= penalty;
     const correctPos = order + 1;
-    fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not step ${gitStep + 1}.</strong> <span class="delta minus">−2 pts</span><br>That command belongs at step ${correctPos} of the fix.</div>`;
+    fb.innerHTML = `<svg class="icon icon-lg"><use href="#i-x"/></svg><div><strong>Not step ${gitStep + 1}.</strong> <span class="delta minus">−${penalty} pts</span><br>That command belongs at step ${correctPos} of the fix.</div>`;
     fb.className = 'feedback-box error';
     fb.style.display = 'flex';
   }
@@ -3616,11 +3643,10 @@ function finishGame() {
   clearSnapshot();
   const timeTaken = GAME_TIME - timeLeft;
 
-  score += selectedTech.length * 2;
-  score += 8; // domain bonus
-  if (timeTaken < 540) score += 10; // speed bonus (<9 min)
-  score = Math.min(score, 100);
-  score = Math.max(score, 0);
+  // Score is the raw sum of correctness-based puzzle points. No free bonuses for
+  // just picking a domain/stack — those let all-wrong players reach 100.
+  if (timeTaken < 540 && score >= 50) score += 5; // speed bonus only for real performers
+  score = Math.min(100, Math.max(0, score)); // clamp once, here — puzzles accumulate raw
 
   const entry = {
     name: userData.name,
